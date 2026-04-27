@@ -149,6 +149,16 @@ fn render_status_bar(app: &App, frame: &mut Frame, status_area: Rect, hints_area
             "space: skip | enter: apply match | s: skip file | f: apply file | j/k: navigate | h/esc: back | tab/S-tab: cycle | q/C-c: quit"
         }
     };
-    let hints = Line::from(hints.blue());
-    frame.render_widget(hints, hints_area);
+    let version = concat!("v", env!("CARGO_PKG_VERSION"));
+    // reserve an extra column so the version doesn't sit flush against the hints
+    #[expect(clippy::cast_possible_truncation)]
+    let version_width = (version.len() + 1) as u16;
+    let [hints_area, version_area] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(version_width)])
+            .areas(hints_area);
+    frame.render_widget(Line::from(hints.blue()), hints_area);
+    frame.render_widget(
+        Line::from(version.dark_gray()).right_aligned(),
+        version_area,
+    );
 }

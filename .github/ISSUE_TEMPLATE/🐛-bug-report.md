@@ -18,7 +18,7 @@ assignees: ""
 
 **Screenshots** If applicable, add screenshots to help explain your problem.
 
-**Version:** swpui version:
+**Version:** swpui version (bottom-right corner of TUI):
 
 **Desktop (please complete the following information):**
 
