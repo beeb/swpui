@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.1.1] - 2026-04-27
+
+### Added
+
+
+-  add templates ([#3](https://github.com/beeb/swpui/pull/3)) - ([e4a5394](https://github.com/beeb/swpui/commit/e4a5394fbaddce7a0268a16759c599a29a4e91f8))
+-  show version number ([#5](https://github.com/beeb/swpui/pull/5)) - ([fd57dd5](https://github.com/beeb/swpui/commit/fd57dd5763203f132479e9fa979fc5036db2795e))
+
+
+
+
+**Full Changelog**: [0.1.0...0.1.1](https://github.com/beeb/swpui/compare/v0.1.0...v0.1.1)
+
+
 ## [0.1.0] - 2026-04-27
 
 ### Added

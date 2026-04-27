@@ -8,7 +8,7 @@ name = "swpui"
 readme = "./README.md"
 repository = "https://github.com/beeb/swpui"
 rust-version = "1.94.0"
-version = "0.1.0"
+version = "0.1.1"
 
 [[bin]]
 name = "swp"
