@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.0.1] - 2026-04-27
+
+### Added
+
+
+-  add changelog - ([3bb695d](https://github.com/beeb/swpui/commit/3bb695de4d7d0e2047b003f3795fad966eb699ef))
+
+### Documentation
+
+
+-  add install option - ([c8ab04a](https://github.com/beeb/swpui/commit/c8ab04a364654894e59c0cc0054f655f6d10bd24))
+
+
+
+
+**Full Changelog**: [0.0.0...0.0.1](https://github.com/beeb/swpui/compare/v0.0.0...v0.0.1)
+
+
 ## [0.0.0] - 2026-04-27
 
 Initial release.
