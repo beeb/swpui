@@ -1,6 +1,4 @@
-use std::{borrow::Cow, path::PathBuf};
-
-use crate::preview::data::ContextLine;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MatchMode {
@@ -24,57 +22,14 @@ impl MatchMode {
 }
 
 #[derive(Debug, Clone)]
-pub enum MatchKind {
-    SingleLine {
-        line_number: usize,
-        line_content: Box<str>,
-    },
-    MultiLine {
-        line_number_start: usize,
-        line_number_end: usize,
-        matched_lines: Box<[Box<str>]>,
-    },
-}
-
-#[derive(Debug, Clone)]
 pub struct MatchInfo {
     pub byte_offset_start: usize,
     pub byte_offset_end: usize,
-    pub match_col_start: usize,
-    pub match_col_end: usize,
-    pub context_before: Box<[ContextLine]>,
-    pub context_after: Box<[ContextLine]>,
     pub skip: bool,
-    pub kind: MatchKind,
+
     /// Captured groups from regex matches. Index 0 = full match ($0), 1..=9 = groups.
     /// Empty in non-regex modes.
     pub captures: Box<[Box<str>]>,
-}
-
-impl MatchInfo {
-    /// Derive the matched text from the kind and context.
-    #[must_use]
-    pub fn matched_text(&self) -> Cow<'_, str> {
-        match &self.kind {
-            MatchKind::SingleLine { line_content, .. } => {
-                Cow::Borrowed(&line_content[self.match_col_start..self.match_col_end])
-            }
-            MatchKind::MultiLine { matched_lines, .. } => {
-                let last = matched_lines.len() - 1;
-                let mut parts = Vec::with_capacity(matched_lines.len());
-                for (i, line) in matched_lines.iter().enumerate() {
-                    if i == 0 {
-                        parts.push(&line[self.match_col_start..]);
-                    } else if i == last {
-                        parts.push(&line[..self.match_col_end]);
-                    } else {
-                        parts.push(line);
-                    }
-                }
-                Cow::Owned(parts.join("\n"))
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -175,25 +130,6 @@ mod tests {
     }
 
     #[test]
-    fn match_info_default_skip_is_false() {
-        let m = MatchInfo {
-            byte_offset_start: 0,
-            byte_offset_end: 5,
-            match_col_start: 0,
-            match_col_end: 5,
-            context_before: Box::new([]),
-            context_after: Box::new([]),
-            skip: false,
-            kind: MatchKind::SingleLine {
-                line_number: 1,
-                line_content: "hello world".into(),
-            },
-            captures: Box::new([]),
-        };
-        assert!(!m.skip);
-    }
-
-    #[test]
     fn file_matches_match_count() {
         let fm = FileMatches {
             path: PathBuf::from("test.rs"),
@@ -201,29 +137,13 @@ mod tests {
                 MatchInfo {
                     byte_offset_start: 0,
                     byte_offset_end: 3,
-                    match_col_start: 0,
-                    match_col_end: 3,
-                    context_before: Box::new([]),
-                    context_after: Box::new([]),
                     skip: false,
-                    kind: MatchKind::SingleLine {
-                        line_number: 1,
-                        line_content: "foo bar".into(),
-                    },
                     captures: Box::new([]),
                 },
                 MatchInfo {
                     byte_offset_start: 10,
                     byte_offset_end: 13,
-                    match_col_start: 4,
-                    match_col_end: 7,
-                    context_before: Box::new([]),
-                    context_after: Box::new([]),
                     skip: true,
-                    kind: MatchKind::SingleLine {
-                        line_number: 2,
-                        line_content: "baz foo qux".into(),
-                    },
                     captures: Box::new([]),
                 },
             ],
@@ -253,56 +173,5 @@ mod tests {
         assert_eq!(pane, Pane::Preview);
         pane = pane.prev();
         assert_eq!(pane, Pane::FileList);
-    }
-
-    #[test]
-    fn match_kind_single_line() {
-        let m = MatchInfo {
-            byte_offset_start: 0,
-            byte_offset_end: 5,
-            match_col_start: 0,
-            match_col_end: 5,
-            context_before: Box::new([]),
-            context_after: Box::new([]),
-            skip: false,
-            kind: MatchKind::SingleLine {
-                line_number: 1,
-                line_content: "hello world".into(),
-            },
-            captures: Box::new([]),
-        };
-        assert!(!m.skip);
-        assert_eq!(&*m.matched_text(), "hello");
-        assert!(matches!(m.kind, MatchKind::SingleLine { .. }));
-    }
-
-    #[test]
-    fn match_kind_multi_line() {
-        let m = MatchInfo {
-            byte_offset_start: 0,
-            byte_offset_end: 20,
-            match_col_start: 0,
-            match_col_end: 5,
-            context_before: Box::new([]),
-            context_after: Box::new([]),
-            skip: false,
-            kind: MatchKind::MultiLine {
-                line_number_start: 1,
-                line_number_end: 2,
-                matched_lines: vec![Box::from("hello"), Box::from("world")].into(),
-            },
-            captures: Box::new([]),
-        };
-        assert!(matches!(m.kind, MatchKind::MultiLine { .. }));
-        if let MatchKind::MultiLine {
-            line_number_start,
-            line_number_end,
-            matched_lines,
-        } = &m.kind
-        {
-            assert_eq!(*line_number_start, 1);
-            assert_eq!(*line_number_end, 2);
-            assert_eq!(matched_lines.len(), 2);
-        }
     }
 }

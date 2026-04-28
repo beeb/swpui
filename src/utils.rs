@@ -7,10 +7,7 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr};
 
-use crate::{
-    preview::data::ContextLine,
-    types::{FileMatches, MatchInfo, MatchKind},
-};
+use crate::types::{FileMatches, MatchInfo};
 
 pub struct TruncatedLine<'a> {
     pub before: &'a str,
@@ -370,30 +367,13 @@ fn slice_start(s: &str, max_cols: usize) -> &str {
     &s[..byte_end]
 }
 
-fn context_mem_bytes(ctx: &[ContextLine]) -> usize {
-    size_of_val(ctx) + ctx.iter().map(|c| c.content.len()).sum::<usize>()
-}
-
-fn match_kind_mem_bytes(kind: &MatchKind) -> usize {
-    match kind {
-        MatchKind::SingleLine { line_content, .. } => line_content.len(),
-        MatchKind::MultiLine { matched_lines, .. } => {
-            matched_lines.len() * size_of::<Box<str>>()
-                + matched_lines.iter().map(|s| s.len()).sum::<usize>()
-        }
-    }
-}
-
-fn match_mem_bytes(m: &MatchInfo) -> usize {
-    context_mem_bytes(&m.context_before)
-        + context_mem_bytes(&m.context_after)
-        + match_kind_mem_bytes(&m.kind)
-}
-
 fn file_matches_mem_bytes(fm: &FileMatches) -> usize {
     fm.path.capacity()
         + fm.matches.capacity() * size_of::<MatchInfo>()
-        + fm.matches.iter().map(match_mem_bytes).sum::<usize>()
+        + fm.matches
+            .iter()
+            .map(|m| m.captures.iter().map(|c| c.len()).sum::<usize>())
+            .sum::<usize>()
 }
 
 #[cfg(test)]

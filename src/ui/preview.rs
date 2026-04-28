@@ -462,7 +462,7 @@ fn build_preview_lines(
 #[cfg(test)]
 mod tests {
     use crate::preview::data::{ContextLine, PreviewData, PreviewMatch, PreviewMatchKind};
-    use crate::types::{MatchInfo, MatchKind, MatchMode};
+    use crate::types::{MatchInfo, MatchMode};
 
     use super::*;
 
@@ -470,15 +470,7 @@ mod tests {
         MatchInfo {
             byte_offset_start: 0,
             byte_offset_end: 5,
-            match_col_start: 0,
-            match_col_end: 0,
-            context_before: Box::new([]),
-            context_after: Box::new([]),
             skip: false,
-            kind: MatchKind::SingleLine {
-                line_number: 1,
-                line_content: Box::from(""),
-            },
             captures: Box::new([]),
         }
     }
