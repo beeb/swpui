@@ -4,4 +4,5 @@
 //! to derive context lines, line content, and match column positions, with an LRU cache
 //! that bounds resident memory.
 
+pub mod cache;
 pub mod data;

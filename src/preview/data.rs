@@ -11,7 +11,8 @@ pub struct ContextLine {
     pub content: Box<str>,
 }
 
-pub(crate) fn ceil_char_boundary(s: &str, pos: usize) -> usize {
+#[must_use]
+pub fn ceil_char_boundary(s: &str, pos: usize) -> usize {
     let mut p = pos;
     while p < s.len() && !s.is_char_boundary(p) {
         p += 1;
@@ -19,7 +20,8 @@ pub(crate) fn ceil_char_boundary(s: &str, pos: usize) -> usize {
     p
 }
 
-pub(crate) fn floor_char_boundary(s: &str, pos: usize) -> usize {
+#[must_use]
+pub fn floor_char_boundary(s: &str, pos: usize) -> usize {
     let mut p = pos.min(s.len());
     while p > 0 && !s.is_char_boundary(p) {
         p -= 1;
@@ -28,7 +30,8 @@ pub(crate) fn floor_char_boundary(s: &str, pos: usize) -> usize {
 }
 
 /// Truncate from the right, keeping at least `min_bytes` from the start.
-pub(crate) fn truncate_right(s: &str, min_bytes: usize) -> Box<str> {
+#[must_use]
+pub fn truncate_right(s: &str, min_bytes: usize) -> Box<str> {
     let limit = MAX_CONTEXT_CHARS.max(min_bytes);
     if s.len() <= limit {
         return Box::from(s);
@@ -47,7 +50,8 @@ pub(crate) fn truncate_right(s: &str, min_bytes: usize) -> Box<str> {
 /// match region `[col_start..col_end]`.
 ///
 /// Returns `(truncated_line, new_col_start, new_col_end)`.
-pub(crate) fn truncate_around_match(
+#[must_use]
+pub fn truncate_around_match(
     line: &str,
     col_start: usize,
     col_end: usize,
