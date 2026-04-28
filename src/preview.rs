@@ -6,3 +6,6 @@
 
 pub mod cache;
 pub mod data;
+pub mod worker;
+
+pub use worker::{PreviewCommand, PreviewRequest, PreviewResult, PreviewWorker, WantedSet};
