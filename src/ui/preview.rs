@@ -397,7 +397,7 @@ fn matched_text_from_preview(preview: &PreviewMatch) -> std::borrow::Cow<'_, str
 #[expect(clippy::too_many_arguments)]
 fn build_preview_lines(
     matches: &[MatchInfo],
-    preview: &PreviewData,
+    data: &PreviewData,
     replacement: &str,
     mode: MatchMode,
     is_preview_focused: bool,
@@ -408,7 +408,7 @@ fn build_preview_lines(
     let mut lines: Vec<Line<'static>> = Vec::with_capacity(matches.len() * CONTEXT_LINES * 2 + 3);
     let separator: String = "\u{2500}".repeat(inner_width as usize);
 
-    for (match_idx, (info, preview)) in matches.iter().zip(preview.matches.iter()).enumerate() {
+    for (match_idx, (info, preview)) in matches.iter().zip(data.matches.iter()).enumerate() {
         let is_selected = is_preview_focused && match_idx == selected_match;
 
         if match_idx > 0 {

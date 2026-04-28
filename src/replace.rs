@@ -67,7 +67,8 @@ pub fn apply_replacements(
     for m in active {
         let expanded = expand_captures(replacement, &m.captures);
         let repl = if mode == MatchMode::CaseAware {
-            case_aware_replacement(&m.matched_text(), &expanded)
+            let matched_text = &result[m.byte_offset_start..m.byte_offset_end];
+            case_aware_replacement(matched_text, &expanded)
         } else {
             expanded
         };
