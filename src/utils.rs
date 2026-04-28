@@ -7,7 +7,10 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr};
 
-use crate::types::{ContextLine, FileMatches, MatchInfo, MatchKind};
+use crate::{
+    preview::data::ContextLine,
+    types::{FileMatches, MatchInfo, MatchKind},
+};
 
 pub struct TruncatedLine<'a> {
     pub before: &'a str,

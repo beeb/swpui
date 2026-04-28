@@ -13,8 +13,8 @@ use ratatui::{
 use super::focused_border_style;
 use crate::{
     app::App,
+    preview::data::CONTEXT_LINES,
     replace::{case_aware_replacement, effective_replacement, expand_captures},
-    search::CONTEXT_LINES,
     types::{FileMatches, MatchInfo, MatchKind, MatchMode, Pane},
     utils::truncate_match_line,
 };
@@ -229,7 +229,7 @@ fn build_match_header(m: &MatchInfo, is_selected: bool) -> Line<'static> {
 }
 
 fn build_context_lines(
-    ctx: &[crate::types::ContextLine],
+    ctx: &[crate::preview::data::ContextLine],
 ) -> impl Iterator<Item = Line<'static>> + '_ {
     ctx.iter().map(|c| {
         Line::from(Span::styled(
@@ -391,7 +391,10 @@ fn build_preview_lines(
 mod tests {
     use std::path::PathBuf;
 
-    use crate::types::{ContextLine, FileMatches, MatchInfo, MatchKind, MatchMode};
+    use crate::{
+        preview::data::ContextLine,
+        types::{FileMatches, MatchInfo, MatchKind, MatchMode},
+    };
 
     use super::*;
 

@@ -1,5 +1,7 @@
 use std::{borrow::Cow, path::PathBuf};
 
+use crate::preview::data::ContextLine;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MatchMode {
     #[default]
@@ -19,12 +21,6 @@ impl MatchMode {
             Self::RegexMultiline => Self::CaseAware,
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct ContextLine {
-    pub line_number: usize,
-    pub content: Box<str>,
 }
 
 #[derive(Debug, Clone)]
@@ -176,16 +172,6 @@ mod tests {
         assert_eq!(mode, MatchMode::RegexMultiline);
         mode = mode.toggle();
         assert_eq!(mode, MatchMode::CaseAware);
-    }
-
-    #[test]
-    fn context_line_range() {
-        let ctx = ContextLine {
-            line_number: 10,
-            content: "hello world".into(),
-        };
-        assert_eq!(ctx.line_number, 10);
-        assert_eq!(&*ctx.content, "hello world");
     }
 
     #[test]
