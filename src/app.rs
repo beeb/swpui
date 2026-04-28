@@ -1,9 +1,10 @@
 use std::{
+    collections::HashMap,
     fs,
     path::PathBuf,
     slice,
     sync::{
-        Arc,
+        Arc, RwLock,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -25,6 +26,10 @@ use ratatui::{
 use tracing::debug;
 
 use crate::{
+    prelude::OrPanic as _,
+    preview::{
+        PreviewCommand, PreviewRequest, PreviewResult, PreviewWorker, WantedSet, data::PreviewData,
+    },
     replace,
     search::SearchWorker,
     spinner::SpinnerState,
@@ -57,6 +62,9 @@ pub struct App {
     pub spinner: SpinnerState,
     pub confirm_apply_all: bool,
     pub include_hidden: bool,
+    pub preview_data: HashMap<PathBuf, Arc<PreviewData>>,
+    pub preview_error: HashMap<PathBuf, String>,
+    pub preview_loading: bool,
     exit: bool,
     generation: u64,
     last_keystroke: Option<Instant>,
@@ -64,6 +72,10 @@ pub struct App {
     cmd_tx: mpsc::Sender<WorkerCommand>,
     result_rx: mpsc::Receiver<SearchResult>,
     cancelled: Arc<AtomicBool>,
+    preview_wanted: WantedSet,
+    preview_cmd_tx: mpsc::Sender<PreviewCommand>,
+    preview_result_rx: mpsc::Receiver<PreviewResult>,
+    preview_generation: u64,
 }
 
 impl App {
@@ -74,6 +86,16 @@ impl App {
 
         let worker = SearchWorker::new(root.clone(), cmd_rx, result_tx, Arc::clone(&cancelled))?;
         thread::spawn(move || worker.run());
+
+        let (preview_cmd_tx, preview_cmd_rx) = mpsc::channel();
+        let (preview_result_tx, preview_result_rx) = mpsc::channel();
+        let preview_wanted: WantedSet = Arc::new(RwLock::new([None, None, None]));
+        let preview_worker = PreviewWorker::new(
+            preview_cmd_rx,
+            preview_result_tx,
+            Arc::clone(&preview_wanted),
+        );
+        thread::spawn(move || preview_worker.run());
 
         Ok(Self {
             root,
@@ -93,6 +115,9 @@ impl App {
             spinner: SpinnerState::default(),
             confirm_apply_all: false,
             include_hidden: true,
+            preview_data: HashMap::new(),
+            preview_error: HashMap::new(),
+            preview_loading: false,
             exit: false,
             generation: 0,
             last_keystroke: None,
@@ -100,6 +125,10 @@ impl App {
             cmd_tx,
             result_rx,
             cancelled,
+            preview_wanted,
+            preview_cmd_tx,
+            preview_result_rx,
+            preview_generation: 0,
         })
     }
 
@@ -112,6 +141,7 @@ impl App {
             terminal.draw(|frame| self.draw(frame))?;
             self.poll_events()?;
             self.poll_search_results();
+            self.poll_preview_results();
             self.maybe_send_search();
             if self.searching {
                 self.spinner.tick();
@@ -150,6 +180,7 @@ impl App {
                     self.results.sort_unstable_by(|a, b| a.path.cmp(&b.path));
                     self.searching = false;
                     self.truncated = truncated;
+                    self.dispatch_preview();
                     let total: usize = self.results.iter().map(|fm| fm.matches.len()).sum();
                     debug!(
                         generation,
@@ -201,6 +232,14 @@ impl App {
         self.pending_search = true;
     }
 
+    fn reset_preview_state(&mut self) {
+        let _ = self.preview_cmd_tx.send(PreviewCommand::Clear);
+        self.preview_data.clear();
+        self.preview_error.clear();
+        self.preview_loading = false;
+        *self.preview_wanted.write().or_panic("poisoned lock") = [None, None, None];
+    }
+
     fn dispatch_search(&mut self) {
         debug!(
             old_len = self.results.len(),
@@ -213,6 +252,7 @@ impl App {
         self.truncated = false;
         self.search_input.set_invalid(false);
         self.cancelled.store(true, Ordering::Relaxed); // cancel any ongoing search
+        self.reset_preview_state();
         self.generation += 1;
         let pattern = self.search_input.text();
         if pattern.is_empty() {
@@ -229,6 +269,121 @@ impl App {
             mode: self.match_mode,
             generation: self.generation,
         }));
+    }
+
+    fn dispatch_preview(&mut self) {
+        if self.results.is_empty() {
+            self.reset_preview_state();
+            return;
+        }
+        let active_idx = self.selected_file();
+        let active_path = self.results[active_idx].path.clone();
+        let next_path = self.results.get(active_idx + 1).map(|fm| fm.path.clone());
+        let prev_path = active_idx
+            .checked_sub(1)
+            .and_then(|i| self.results.get(i).map(|fm| fm.path.clone()));
+        let wanted = [Some(active_path.clone()), next_path, prev_path];
+        self.preview_wanted
+            .write()
+            .or_panic("poisoned lock")
+            .clone_from(&wanted);
+
+        let is_wanted = |p: &PathBuf| wanted.iter().any(|w| w.as_ref() == Some(p));
+        self.preview_data.retain(|p, _| is_wanted(p));
+        self.preview_error.retain(|p, _| is_wanted(p));
+
+        let pattern = self.search_input.text().to_string();
+        let mode = self.match_mode;
+        for slot in wanted.iter().flatten() {
+            if self.preview_data.contains_key(slot) {
+                // data is already available
+                continue;
+            }
+            let Some(fm) = self.results.iter().find(|fm| &fm.path == slot) else {
+                continue;
+            };
+            let byte_ranges: Box<[(usize, usize)]> = fm
+                .matches
+                .iter()
+                .map(|m| (m.byte_offset_start, m.byte_offset_end))
+                .collect();
+            self.preview_generation += 1;
+            let _ = self
+                .preview_cmd_tx
+                .send(PreviewCommand::Request(PreviewRequest {
+                    path: slot.clone(),
+                    byte_ranges,
+                    content_hash: fm.content_hash,
+                    pattern: pattern.clone(),
+                    mode,
+                    generation: self.preview_generation,
+                }));
+        }
+        self.preview_loading = !self.preview_data.contains_key(&active_path);
+    }
+
+    fn poll_preview_results(&mut self) {
+        while let Ok(result) = self.preview_result_rx.try_recv() {
+            let active = self
+                .results
+                .get(self.selected_file())
+                .map(|fm| fm.path.clone());
+            match result {
+                PreviewResult::Ready { path, data, .. } => {
+                    self.preview_error.remove(&path);
+                    self.preview_data.insert(path.clone(), data);
+                    if Some(&path) == active.as_ref() {
+                        self.preview_loading = false;
+                    }
+                }
+                PreviewResult::Updated {
+                    path,
+                    matches,
+                    content_hash,
+                    data,
+                    ..
+                } => {
+                    self.preview_error.remove(&path);
+                    self.preview_data.insert(path.clone(), data);
+                    let Some(fm) = self.results.iter_mut().find(|fm| fm.path == path) else {
+                        continue;
+                    };
+                    fm.matches = matches;
+                    fm.content_hash = content_hash;
+                    if Some(&path) == active.as_ref() {
+                        self.selected_match = 0;
+                        self.preview_line_offset = 0;
+                        self.preview_scroll.clear();
+                        self.preview_loading = false;
+                    }
+                }
+                PreviewResult::Removed { path, .. } => {
+                    let Some(idx) = self.results.iter().position(|fm| fm.path == path) else {
+                        continue;
+                    };
+                    self.results.remove(idx);
+                    self.preview_data.remove(&path);
+                    self.preview_error.remove(&path);
+                    self.clamp_selection();
+                    self.dispatch_preview();
+                }
+                PreviewResult::Error { path, message, .. } => {
+                    self.preview_data.remove(&path);
+                    self.preview_error.insert(path.clone(), message);
+                    if Some(&path) == active.as_ref() {
+                        self.preview_loading = false;
+                    }
+                }
+            }
+        }
+    }
+
+    fn invalidate_preview_for(&mut self, path: &PathBuf) {
+        let _ = self
+            .preview_cmd_tx
+            .send(PreviewCommand::Invalidate(path.clone()));
+        self.preview_data.remove(path);
+        self.preview_error.remove(path);
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
@@ -331,6 +486,7 @@ impl App {
                 self.selected_match = 0;
                 self.preview_line_offset = 0;
                 self.preview_scroll.clear();
+                self.dispatch_preview();
                 return;
             }
             KeyCode::Char('k') | KeyCode::Up => {
@@ -339,6 +495,7 @@ impl App {
                 self.selected_match = 0;
                 self.preview_line_offset = 0;
                 self.preview_scroll.clear();
+                self.dispatch_preview();
                 return;
             }
             KeyCode::Char('l') | KeyCode::Enter | KeyCode::Right if !self.results.is_empty() => {
@@ -417,7 +574,7 @@ impl App {
     fn apply_all(&mut self) {
         let replacement =
             replace::effective_replacement(self.replace_input.text(), self.match_mode);
-        let mut indices_to_remove = Vec::with_capacity(self.results.len());
+        let mut to_remove = Vec::with_capacity(self.results.len());
         for (i, fm) in self.results.iter().enumerate() {
             if replace::has_overlapping_matches(&fm.matches) {
                 self.status_message = Some(format!(
@@ -429,17 +586,19 @@ impl App {
             if let Err(e) = Self::apply_to_file(fm, &replacement, self.match_mode) {
                 self.status_message = Some(format!("{}: {e}", fm.path.display()));
             } else {
-                indices_to_remove.push(i);
+                to_remove.push((i, fm.path.clone()));
             }
         }
-        if indices_to_remove.len() == self.results.len() {
+        if to_remove.len() == self.results.len() {
             Self::drop_results_in_background(&mut self.results);
         } else {
-            for i in indices_to_remove.into_iter().rev() {
+            for (i, p) in to_remove.into_iter().rev() {
                 self.results.swap_remove(i);
+                self.invalidate_preview_for(&p);
             }
         }
         self.clamp_selection();
+        self.dispatch_preview();
     }
 
     fn apply_file(&mut self) {
@@ -453,11 +612,14 @@ impl App {
             self.status_message = Some(format!("Overlapping matches in {}", fm.path.display()));
             return;
         }
+        let path_to_remove = fm.path.clone();
         if let Err(e) = Self::apply_to_file(fm, &replacement, self.match_mode) {
             self.status_message = Some(e.to_string());
         } else {
             self.results.remove(sel);
+            self.invalidate_preview_for(&path_to_remove);
             self.clamp_selection();
+            self.dispatch_preview();
         }
     }
 
@@ -487,13 +649,16 @@ impl App {
             self.status_message = Some(format!("{}: {e}", fm.path.display()));
             return;
         }
+        let path_to_remove = fm.path.clone();
         // remove this match from the results
         // if no matches left, remove the file
         fm.matches.remove(self.selected_match);
         if fm.matches.is_empty() {
             self.results.remove(sel);
         }
+        self.invalidate_preview_for(&path_to_remove);
         self.clamp_selection();
+        self.dispatch_preview();
     }
 
     fn apply_to_file(fm: &FileMatches, replacement: &str, mode: MatchMode) -> anyhow::Result<()> {
