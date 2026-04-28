@@ -9,8 +9,8 @@ use std::{
     },
 };
 
-pub const MAX_FILES: usize = 100_000;
-pub const MAX_MATCHES: usize = 100_000;
+pub const MAX_FILES: usize = 250_000;
+pub const MAX_MATCHES: usize = 1_000_000;
 
 use ignore::{WalkBuilder, WalkState};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
