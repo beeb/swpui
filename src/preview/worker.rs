@@ -142,19 +142,9 @@ fn handle_request(
         return;
     }
 
-    let maybe_data = {
-        let mut cache = cache.lock().or_panic("poisoned lock");
-        cache.get(&req.path, &req.content_hash)
-    };
-    if let Some(data) = maybe_data {
-        let _ = result_tx.send(PreviewResult::Ready {
-            path: req.path,
-            generation: req.generation,
-            data,
-        });
-        return;
-    }
-
+    // read the file first so we can use the actual on-disk hash as the cache key;
+    // using req.content_hash for the lookup would cause stale hits when the file
+    // changes externally after the preview was cached
     let (content, content_hash) = match read_file_with_cancel(&req.path, wanted) {
         Ok(Some(pair)) => pair,
         Ok(None) => return, // this file is not in the wanted set anymore
@@ -168,8 +158,21 @@ fn handle_request(
         }
     };
 
+    let maybe_data = {
+        let mut cache = cache.lock().or_panic("poisoned lock");
+        cache.get(&req.path, &content_hash)
+    };
+    if let Some(data) = maybe_data {
+        let _ = result_tx.send(PreviewResult::Ready {
+            path: req.path,
+            generation: req.generation,
+            data,
+        });
+        return;
+    }
+
     if content_hash == req.content_hash {
-        // file hasn't changed, we can construct the preview data
+        // file hasn't changed since the search ran, construct preview data
         let data = Arc::new(build_preview_data(&content, &req.byte_ranges));
         {
             let mut cache = cache.lock().or_panic("poisoned lock");
@@ -443,5 +446,61 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .unwrap_or_else(|_| unreachable!());
         assert!(matches!(result, PreviewResult::Error { .. }));
+    }
+
+    #[test]
+    fn updated_when_file_changed_after_cache_populated() {
+        // reproduce the bug: file previewed (cache populated with H1), then modified
+        // externally (now H2), then previewed again with req.content_hash=H1
+        // must return Updated, not the stale cached Ready
+        let dir = TempDir::new().unwrap_or_else(|_| unreachable!());
+        let path = write_file(&dir, "a.txt", "foo\n");
+        let original_hash = hash_file(&path).unwrap_or_else(|_| unreachable!());
+
+        let (cmd_tx, result_rx, wanted, _handle) = setup();
+        if let Ok(mut slots) = wanted.write() {
+            slots[0] = Some(path.clone());
+        }
+
+        // first request: populates cache under original_hash
+        cmd_tx
+            .send(PreviewCommand::Request(PreviewRequest {
+                path: path.clone(),
+                byte_ranges: vec![(0, 3)].into(),
+                content_hash: original_hash,
+                pattern: "foo".to_string(),
+                mode: MatchMode::Literal,
+                generation: 1,
+            }))
+            .unwrap_or_else(|_| unreachable!());
+        let r1 = result_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap_or_else(|_| unreachable!());
+        assert!(
+            matches!(r1, PreviewResult::Ready { .. }),
+            "expected Ready, got {r1:?}"
+        );
+
+        // modify the file externally
+        write_file(&dir, "a.txt", "foo bar\n");
+
+        // second request: still uses original_hash (FileMatches not updated yet)
+        cmd_tx
+            .send(PreviewCommand::Request(PreviewRequest {
+                path: path.clone(),
+                byte_ranges: vec![(0, 3)].into(),
+                content_hash: original_hash,
+                pattern: "foo".to_string(),
+                mode: MatchMode::Literal,
+                generation: 2,
+            }))
+            .unwrap_or_else(|_| unreachable!());
+        let r2 = result_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap_or_else(|_| unreachable!());
+        assert!(
+            matches!(r2, PreviewResult::Updated { .. }),
+            "expected Updated (file changed externally), got {r2:?}"
+        );
     }
 }
