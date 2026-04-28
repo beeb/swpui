@@ -75,3 +75,31 @@ pub(crate) fn truncate_around_match(
         col_end - keep_start,
     )
 }
+
+#[derive(Debug, Clone)]
+pub enum PreviewMatchKind {
+    SingleLine {
+        line_number: usize,
+        line_content: Box<str>,
+    },
+    MultiLine {
+        line_number_start: usize,
+        line_number_end: usize,
+        matched_lines: Box<[Box<str>]>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct PreviewMatch {
+    pub match_col_start: usize,
+    pub match_col_end: usize,
+    pub context_before: Box<[ContextLine]>,
+    pub context_after: Box<[ContextLine]>,
+    pub kind: PreviewMatchKind,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreviewData {
+    pub matches: Box<[PreviewMatch]>,
+    pub size_bytes: usize,
+}
