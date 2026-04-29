@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cmp::Reverse, io::Write as _, path::Path};
+use std::{borrow::Cow, cmp::Reverse, io::Write as _, ops::Range, path::Path};
 
 use convert_case::{Case, Casing as _};
 
@@ -14,14 +14,14 @@ const CASES: [Case<'static>; 6] = [
     Case::UpperSnake,
 ];
 
-/// Adjust replacement text according to casing.
+/// Adjust replacement text according to casing of the match (expanded to word boundaries).
 #[must_use]
-pub fn case_aware_replacement<'a>(matched_text: &str, replacement: &'a str) -> Cow<'a, str> {
-    if matched_text.is_empty() || replacement.is_empty() {
+pub fn case_aware_replacement<'a>(match_word: &str, replacement: &'a str) -> Cow<'a, str> {
+    if match_word.is_empty() || replacement.is_empty() {
         return Cow::Borrowed(replacement);
     }
 
-    let Some(matched_case) = detect_case(matched_text) else {
+    let Some(matched_case) = detect_case(match_word) else {
         return Cow::Borrowed(replacement);
     };
 
@@ -66,13 +66,14 @@ pub fn apply_replacements(
 
     for m in active {
         let expanded = expand_captures(replacement, &m.captures);
+        let match_range = m.byte_offset_start..m.byte_offset_end;
         let repl = if mode == MatchMode::CaseAware {
-            let matched_text = &result[m.byte_offset_start..m.byte_offset_end];
-            case_aware_replacement(matched_text, &expanded)
+            let word_range = expand_to_word(&result, match_range.clone());
+            case_aware_replacement(&result[word_range], &expanded)
         } else {
             expanded
         };
-        result.replace_range(m.byte_offset_start..m.byte_offset_end, &repl);
+        result.replace_range(match_range, &repl);
     }
     result
 }
@@ -96,6 +97,46 @@ pub fn write_file(path: impl AsRef<Path>, content: &str) -> anyhow::Result<()> {
 /// Detect the case of a string by trying each case from least to most specific.
 fn detect_case(s: &str) -> Option<Case<'static>> {
     CASES.iter().copied().find(|&case| s == s.to_case(case))
+}
+
+/// Expand the byte range to cover the contiguous identifier surrounding the match.
+///
+/// Walks left and right by alphanumeric characters, `_`, and `-`. Leading and trailing
+/// `_` or `-` in the *context* (not the matched bytes themselves) are trimmed so that
+/// separators only count when they sit between alphanumeric characters.
+fn expand_to_word(content: &str, range: Range<usize>) -> Range<usize> {
+    let Range { start, end } = range;
+    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '-';
+
+    // walk left from `start`, taking extending chars right-to-left
+    let new_start = content[..start]
+        .char_indices()
+        .rev()
+        .take_while(|&(_, c)| is_word(c))
+        .last()
+        .map_or(start, |(i, _)| i);
+
+    // walk right from `end`, taking extending chars left-to-right
+    let new_end = content[end..]
+        .char_indices()
+        .take_while(|&(_, c)| is_word(c))
+        .last()
+        .map_or(end, |(i, c)| end + i + c.len_utf8());
+
+    // trim leading `_`/`-` from the expansion (up to original match)
+    let new_start = content[new_start..start]
+        .char_indices()
+        .find(|&(_, c)| c.is_alphanumeric())
+        .map_or(start, |(i, _)| new_start + i);
+
+    // trim trailing `_`/`-` from the expansion (after the original match)
+    let new_end = content[end..new_end]
+        .char_indices()
+        .rev()
+        .find(|&(_, c)| c.is_alphanumeric())
+        .map_or(end, |(i, c)| end + i + c.len_utf8());
+
+    new_start..new_end
 }
 
 /// Return the effective replacement string, expanding escape sequences when in `RegexMultiline` mode.
@@ -362,11 +403,143 @@ mod tests {
     }
 
     #[test]
+    fn expand_to_word_camel_case_middle() {
+        assert_eq!(expand_to_word("fooBar", 0..3), 0..6);
+    }
+
+    #[test]
+    fn expand_to_word_pascal_case_middle() {
+        assert_eq!(expand_to_word("FooBar", 3..6), 0..6);
+    }
+
+    #[test]
+    fn expand_to_word_snake_case_middle() {
+        assert_eq!(expand_to_word("foo_bar_baz", 4..7), 0..11);
+    }
+
+    #[test]
+    fn expand_to_word_kebab_case_middle() {
+        assert_eq!(expand_to_word("foo-bar-baz", 4..7), 0..11);
+    }
+
+    #[test]
+    fn expand_to_word_upper_snake_middle() {
+        assert_eq!(expand_to_word("FOO_BAR_BAZ", 4..7), 0..11);
+    }
+
+    #[test]
+    fn expand_to_word_match_at_left_edge_of_identifier() {
+        assert_eq!(expand_to_word("fooBar", 0..3), 0..6);
+    }
+
+    #[test]
+    fn expand_to_word_match_at_right_edge_of_identifier() {
+        assert_eq!(expand_to_word("fooBar", 3..6), 0..6);
+    }
+
+    #[test]
+    fn expand_to_word_trims_leading_underscore_outside_match() {
+        assert_eq!(expand_to_word("_foo", 1..4), 1..4);
+    }
+
+    #[test]
+    fn expand_to_word_trims_trailing_underscore_outside_match() {
+        assert_eq!(expand_to_word("foo_", 0..3), 0..3);
+    }
+
+    #[test]
+    fn expand_to_word_trims_leading_hyphen_outside_match() {
+        assert_eq!(expand_to_word("-foo", 1..4), 1..4);
+    }
+
+    #[test]
+    fn expand_to_word_keeps_separator_in_match_itself() {
+        assert_eq!(expand_to_word("_foo", 0..4), 0..4);
+    }
+
+    #[test]
+    fn expand_to_word_match_at_start_of_content() {
+        assert_eq!(expand_to_word("fooBar", 0..3), 0..6);
+    }
+
+    #[test]
+    fn expand_to_word_match_at_end_of_content() {
+        assert_eq!(expand_to_word("fooBar", 3..6), 0..6);
+    }
+
+    #[test]
+    fn expand_to_word_match_surrounded_by_whitespace() {
+        assert_eq!(expand_to_word("  foo  ", 2..5), 2..5);
+    }
+
+    #[test]
+    fn expand_to_word_match_surrounded_by_punctuation() {
+        assert_eq!(expand_to_word("(foo)", 1..4), 1..4);
+    }
+
+    #[test]
+    fn expand_to_word_does_not_cross_whitespace() {
+        assert_eq!(expand_to_word("foo bar", 0..3), 0..3);
+    }
+
+    #[test]
+    fn expand_to_word_match_is_separator_only() {
+        assert_eq!(expand_to_word("foo_bar", 3..4), 0..7);
+    }
+
+    #[test]
+    fn expand_to_word_match_contains_path_separator() {
+        assert_eq!(expand_to_word("x_foo::bar_y", 2..10), 0..12);
+    }
+
+    #[test]
+    fn expand_to_word_unicode_alphanumeric_neighbour() {
+        assert_eq!(expand_to_word("é_foo", 3..6), 0..6);
+    }
+
+    #[test]
+    fn expand_to_word_empty_content() {
+        assert_eq!(expand_to_word("", 0..0), 0..0);
+    }
+
+    #[test]
     fn case_aware_apply_replacements() {
         let content = "Hello hello";
         let matches = vec![make_match(0, 5), make_match(6, 11)];
         let result = apply_replacements(content, &matches, "world", MatchMode::CaseAware);
         assert_eq!(result, "World world");
+    }
+
+    #[test]
+    fn case_aware_substring_in_camel_case_identifier() {
+        let content = "fooBar";
+        let matches = vec![make_match(0, 3)];
+        let result = apply_replacements(content, &matches, "new_thing", MatchMode::CaseAware);
+        assert_eq!(result, "newThingBar");
+    }
+
+    #[test]
+    fn case_aware_substring_in_upper_snake_identifier() {
+        let content = "FOO_BAR_BAZ";
+        let matches = vec![make_match(4, 7)];
+        let result = apply_replacements(content, &matches, "new_thing", MatchMode::CaseAware);
+        assert_eq!(result, "FOO_NEW_THING_BAZ");
+    }
+
+    #[test]
+    fn case_aware_substring_in_kebab_case_identifier() {
+        let content = "foo-bar-baz";
+        let matches = vec![make_match(4, 7)];
+        let result = apply_replacements(content, &matches, "qux_thing", MatchMode::CaseAware);
+        assert_eq!(result, "foo-qux-thing-baz");
+    }
+
+    #[test]
+    fn case_aware_substring_in_pascal_case_identifier() {
+        let content = "FooBar";
+        let matches = vec![make_match(0, 3)];
+        let result = apply_replacements(content, &matches, "new_thing", MatchMode::CaseAware);
+        assert_eq!(result, "NewThingBar");
     }
 
     #[test]
