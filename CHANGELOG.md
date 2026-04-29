@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.2.0] - 2026-04-29
+
+### Added
+
+
+-  improve case detection by growing match text to word boundary ([#8](https://github.com/beeb/swpui/pull/8)) - ([fb7df2e](https://github.com/beeb/swpui/commit/fb7df2ee0b7aecb851034b6744bf0570ee2a5a10))
+
+### Changed
+
+
+-  optimize memory usage by reading preview data on-demand ([#6](https://github.com/beeb/swpui/pull/6)) - ([a836d84](https://github.com/beeb/swpui/commit/a836d8489308870cf3d1620f69807d058b1ceed0))
+
+
+
+
+**Full Changelog**: [0.1.1...0.2.0](https://github.com/beeb/swpui/compare/v0.1.1...v0.2.0)
+
+
 ## [0.1.1] - 2026-04-27
 
 ### Added
