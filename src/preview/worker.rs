@@ -9,10 +9,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::{
     prelude::OrPanic as _,
-    preview::{
-        cache::PreviewCache,
-        data::{PreviewData, build_preview_data},
-    },
+    preview::{cache::PreviewCache, data::PreviewData},
     search::{MAX_MATCHES, Pattern, find_matches_in_content},
     types::{MatchInfo, MatchMode},
 };
@@ -173,7 +170,7 @@ fn handle_request(
 
     if content_hash == req.content_hash {
         // file hasn't changed since the search ran, construct preview data
-        let data = Arc::new(build_preview_data(&content, &req.byte_ranges));
+        let data = Arc::new(PreviewData::new(&content, &req.byte_ranges));
         {
             let mut cache = cache.lock().or_panic("poisoned lock");
             cache.insert(req.path.clone(), content_hash, Arc::clone(&data));
@@ -220,7 +217,7 @@ fn handle_request(
             .iter()
             .map(|m| (m.byte_offset_start, m.byte_offset_end))
             .collect();
-        let data = Arc::new(build_preview_data(&content, &byte_ranges));
+        let data = Arc::new(PreviewData::new(&content, &byte_ranges));
         {
             let mut cache = cache.lock().or_panic("poisoned lock");
             cache.insert(req.path.clone(), content_hash, Arc::clone(&data));

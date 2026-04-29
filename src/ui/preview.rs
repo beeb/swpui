@@ -269,9 +269,11 @@ fn build_match_header(preview: &PreviewMatch, is_selected: bool) -> Line<'static
         PreviewMatchKind::SingleLine { line_number, .. } => format!(" line {line_number}:"),
         PreviewMatchKind::MultiLine {
             line_number_start,
-            line_number_end,
-            ..
-        } => format!(" lines {line_number_start}-{line_number_end}:"),
+            matched_lines,
+        } => {
+            let line_number_end = line_number_start + matched_lines.len() - 1;
+            format!(" lines {line_number_start}-{line_number_end}:")
+        }
     };
     Line::from(Span::styled(text, style))
 }
@@ -497,7 +499,6 @@ mod tests {
             context_after: Box::new([]),
             kind: PreviewMatchKind::MultiLine {
                 line_number_start: 1,
-                line_number_end: boxed_lines.len(),
                 matched_lines: boxed_lines,
             },
         }
@@ -568,7 +569,7 @@ mod tests {
         let matches = vec![make_info()];
         let preview = PreviewData {
             matches: vec![make_preview_multiline(&["    foo", "bar"], 4, 3)].into(),
-            size_bytes: 0,
+            size: 0,
         };
         let lines = build_preview_lines(
             &matches,

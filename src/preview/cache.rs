@@ -51,9 +51,9 @@ impl PreviewCache {
             .position(|e| e.path == path && e.content_hash == content_hash)
         {
             let old = self.entries.remove(pos).unwrap_or_else(|| unreachable!());
-            self.total_bytes = self.total_bytes.saturating_sub(old.data.size_bytes);
+            self.total_bytes = self.total_bytes.saturating_sub(old.data.size);
         }
-        self.total_bytes += data.size_bytes;
+        self.total_bytes += data.size;
         self.entries.push_front(Entry {
             path,
             content_hash,
@@ -67,7 +67,7 @@ impl PreviewCache {
         let mut total_bytes_removed = 0;
         self.entries.retain(|e| {
             if e.path == path {
-                total_bytes_removed += e.data.size_bytes;
+                total_bytes_removed += e.data.size;
                 false
             } else {
                 true
@@ -83,7 +83,7 @@ impl PreviewCache {
 
     fn drop_back(&mut self) {
         if let Some(e) = self.entries.pop_back() {
-            self.total_bytes = self.total_bytes.saturating_sub(e.data.size_bytes);
+            self.total_bytes = self.total_bytes.saturating_sub(e.data.size);
         }
     }
 
@@ -104,7 +104,7 @@ mod tests {
     fn make_data(size: usize) -> Arc<PreviewData> {
         Arc::new(PreviewData {
             matches: Box::new([]),
-            size_bytes: size,
+            size,
         })
     }
 
