@@ -38,5 +38,28 @@
           };
         }
       );
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+          lib = pkgs.lib;
+        in
+        {
+          default = pkgs.rustPlatform.buildRustPackage {
+            pname = "swpui";
+            inherit ((lib.importTOML ./Cargo.toml).package) version;
+
+            src = lib.cleanSource ./.;
+
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              allowBuiltinFetchGit = true;
+            };
+
+            doCheck = false;
+            meta.mainProgram = "swp";
+          };
+        }
+      );
     };
 }
