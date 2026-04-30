@@ -14,10 +14,13 @@ use crate::{
     types::{MatchInfo, MatchMode},
 };
 
+/// Number of workers is based on the fact that the wanted set has 3 items at most
 const NUM_WORKERS: usize = 3;
-const READ_CHUNK_BYTES: usize = 64 * 1024;
 
-pub type WantedSet = Arc<RwLock<[Option<PathBuf>; 3]>>;
+/// Read in chunks to be able to quickly stop if the file is not needed anymore
+const READ_CHUNK_BYTES: u64 = 64 * 1024;
+
+pub type WantedSet = Arc<RwLock<[Option<PathBuf>; NUM_WORKERS]>>;
 
 #[derive(Debug, Clone)]
 pub struct PreviewRequest {
@@ -38,11 +41,14 @@ pub enum PreviewCommand {
 
 #[derive(Debug)]
 pub enum PreviewResult {
+    /// File didn't change, preview is ready
     Ready {
         path: PathBuf,
         generation: u64,
         data: Arc<PreviewData>,
     },
+
+    /// File did change, communicate new matches and preview data
     Updated {
         path: PathBuf,
         generation: u64,
@@ -50,10 +56,11 @@ pub enum PreviewResult {
         content_hash: [u8; 32],
         data: Arc<PreviewData>,
     },
-    Removed {
-        path: PathBuf,
-        generation: u64,
-    },
+
+    /// File should be removed (no more matches in the file)
+    Removed { path: PathBuf, generation: u64 },
+
+    /// Error when reading file
     Error {
         path: PathBuf,
         generation: u64,
@@ -62,9 +69,13 @@ pub enum PreviewResult {
 }
 
 pub struct PreviewWorker {
+    /// Receive channel shared by the workers
     cmd_rx: Arc<Mutex<mpsc::Receiver<PreviewCommand>>>,
+    /// Channel cloned into each worker thread to send back results
     result_tx: mpsc::Sender<PreviewResult>,
+    /// The preview LRU cache
     cache: Arc<Mutex<PreviewCache>>,
+    /// The set is used to check if we should continue reading from the file or interrupt
     wanted: WantedSet,
 }
 
@@ -139,7 +150,7 @@ fn handle_request(
         return;
     }
 
-    // read the file first so we can use the actual on-disk hash as the cache key;
+    // read the file first so we can use the actual on-disk hash as the cache key
     // using req.content_hash for the lookup would cause stale hits when the file
     // changes externally after the preview was cached
     let (content, content_hash) = match read_file_with_cancel(&req.path, wanted) {
@@ -155,6 +166,7 @@ fn handle_request(
         }
     };
 
+    // return cached data if available
     let maybe_data = {
         let mut cache = cache.lock().or_panic("poisoned lock");
         cache.get(&req.path, &content_hash)
@@ -232,32 +244,29 @@ fn handle_request(
     }
 }
 
+/// Read a file in chunks but stop if its path is not in the wanted set anymore.
 fn read_file_with_cancel(
     path: &Path,
     wanted: &WantedSet,
 ) -> io::Result<Option<(String, [u8; 32])>> {
-    let file = fs::File::open(path)?;
-    let mut reader = io::BufReader::new(file);
-    let mut buf = vec![0u8; READ_CHUNK_BYTES];
+    let mut file = fs::File::open(path)?;
     let mut bytes: Vec<u8> = Vec::new();
-    let mut hasher = Sha256::new();
     loop {
         if !path_is_wanted(wanted, path) {
             return Ok(None);
         }
-        let n = reader.read(&mut buf)?;
+        let n = (&mut file).take(READ_CHUNK_BYTES).read_to_end(&mut bytes)?;
         if n == 0 {
             break;
         }
-        hasher.update(&buf[..n]);
-        bytes.extend_from_slice(&buf[..n]);
     }
-    let hash: [u8; 32] = hasher.finalize().into();
+    let hash: [u8; 32] = Sha256::digest(&bytes).into();
     let content =
         String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     Ok(Some((content, hash)))
 }
 
+/// Check whether `path` is part of the wanted set.
 fn path_is_wanted(wanted: &WantedSet, path: &Path) -> bool {
     let slots = wanted.read().or_panic("poisoned lock");
     slots.iter().any(|p| p.as_deref() == Some(path))
