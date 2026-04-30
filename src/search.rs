@@ -36,7 +36,9 @@ impl<'a> Pattern<'a> {
         }
         Ok(match mode {
             MatchMode::Literal => Pattern::Literal(pattern.as_bytes()),
-            MatchMode::Regex => Pattern::Regex(regex::Regex::new(pattern)?),
+            MatchMode::Regex => {
+                Pattern::Regex(regex::RegexBuilder::new(pattern).crlf(true).build()?)
+            }
             MatchMode::CaseAware => Pattern::Regex(
                 regex::RegexBuilder::new(&regex::escape(pattern))
                     .case_insensitive(true)
@@ -374,6 +376,25 @@ mod tests {
         assert_eq!(
             &content[matches[1].byte_offset_start..matches[1].byte_offset_end],
             "hello rust"
+        );
+    }
+
+    #[test]
+    fn regex_dot_does_not_match_carriage_return() {
+        // on CRLF content, greedy `.` patterns must stop before `\r` so that
+        // a subsequent replacement doesn't strip the `\r` and corrupt the line ending
+        let content = "foo bar\r\nbaz\r\n";
+        let matches = find_matches_in_content(
+            content,
+            &Pattern::new("foo.*", MatchMode::Regex).unwrap(),
+            &AtomicUsize::new(0),
+            usize::MAX,
+        )
+        .unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            &content[matches[0].byte_offset_start..matches[0].byte_offset_end],
+            "foo bar"
         );
     }
 
