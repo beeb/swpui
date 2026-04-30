@@ -49,8 +49,8 @@ impl PreviewCache {
             .entries
             .iter()
             .position(|e| e.path == path && e.content_hash == content_hash)
+            && let Some(old) = self.entries.remove(pos)
         {
-            let old = self.entries.remove(pos).unwrap_or_else(|| unreachable!());
             self.total_bytes = self.total_bytes.saturating_sub(old.data.size);
         }
         self.total_bytes += data.size;
@@ -81,18 +81,18 @@ impl PreviewCache {
         self.total_bytes = 0;
     }
 
-    fn drop_back(&mut self) {
-        if let Some(e) = self.entries.pop_back() {
-            self.total_bytes = self.total_bytes.saturating_sub(e.data.size);
+    fn evict(&mut self) {
+        while self.entries.len() > MAX_ENTRIES {
+            self.drop_lru();
+        }
+        while self.total_bytes > BYTE_CAP && self.entries.len() > MIN_ENTRIES {
+            self.drop_lru();
         }
     }
 
-    fn evict(&mut self) {
-        while self.entries.len() > MAX_ENTRIES {
-            self.drop_back();
-        }
-        while self.total_bytes > BYTE_CAP && self.entries.len() > MIN_ENTRIES {
-            self.drop_back();
+    fn drop_lru(&mut self) {
+        if let Some(e) = self.entries.pop_back() {
+            self.total_bytes = self.total_bytes.saturating_sub(e.data.size);
         }
     }
 }
