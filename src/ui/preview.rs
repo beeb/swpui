@@ -16,7 +16,7 @@ use crate::{
     preview::data::{CONTEXT_LINES, ContextLine, PreviewData, PreviewMatch, PreviewMatchKind},
     replace::{case_aware_replacement, effective_replacement, expand_captures},
     types::{MatchInfo, MatchMode, Pane},
-    utils::truncate_match_line,
+    utils::TruncatedLine,
 };
 
 pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -185,7 +185,7 @@ fn build_match_line(
     let dark_gray = Style::default().fg(Color::DarkGray);
 
     if info.skip {
-        let t = truncate_match_line(before, matched, None, after, inner_width as usize);
+        let t = TruncatedLine::new(before, matched, None, after, inner_width as usize);
         let mut spans = Vec::with_capacity(7);
         spans.push(Span::raw(" "));
         if t.left_ellipsis {
@@ -203,7 +203,7 @@ fn build_match_line(
         spans.push(Span::styled(" [skipped]", dark_gray));
         Line::from(spans)
     } else if !replacement.is_empty() {
-        let t = truncate_match_line(
+        let t = TruncatedLine::new(
             before,
             matched,
             Some(replacement),
@@ -236,7 +236,7 @@ fn build_match_line(
         }
         Line::from(spans)
     } else {
-        let t = truncate_match_line(before, matched, None, after, inner_width as usize);
+        let t = TruncatedLine::new(before, matched, None, after, inner_width as usize);
         let mut spans = Vec::with_capacity(5);
         spans.push(Span::raw(" "));
         if t.left_ellipsis {

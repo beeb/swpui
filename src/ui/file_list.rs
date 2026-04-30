@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use super::focused_border_style;
-use crate::{app::App, types::Pane, utils::format_file_entry};
+use crate::{app::App, types::Pane, utils::FormattedPath};
 
 pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
     let truncated = if app.truncated {
@@ -79,7 +79,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
                 let total = fm.matches.len();
                 let rel = fm.path.strip_prefix(&app.root).unwrap_or(&fm.path);
                 let suffix = format!(" ({active}/{total})");
-                let label = format_file_entry(rel, &suffix, inner_width);
+                let label = FormattedPath::new(rel, &suffix, inner_width);
                 if dimmed {
                     ListItem::new(Line::styled(label, Style::default().fg(Color::DarkGray)))
                 } else {
