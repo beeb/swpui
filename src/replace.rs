@@ -88,8 +88,20 @@ pub fn has_overlapping_matches(matches: &[MatchInfo]) -> bool {
 }
 
 pub fn write_file(path: impl AsRef<Path>, content: &str) -> anyhow::Result<()> {
-    let mut tmp = tempfile::NamedTempFile::new()?;
+    let path = path.as_ref();
+    // place the temp file next to the target so that `persist` (rename) stays on
+    // the same filesystem and the original directory's behavior is preserved
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
     tmp.write_all(content.as_bytes())?;
+    // copy the original file's permissions to the temp file before persisting,
+    // otherwise the destination would inherit tempfile's restrictive 0600 mode
+    if let Ok(meta) = std::fs::metadata(path) {
+        std::fs::set_permissions(tmp.path(), meta.permissions())?;
+    }
     tmp.persist(path)?;
     Ok(())
 }
@@ -299,6 +311,24 @@ mod tests {
         fs::write(&path, "original").unwrap();
         let result = write_file(&path, "replaced");
         assert!(result.is_ok());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "replaced");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_file_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("script.sh");
+        fs::write(&path, "original").unwrap();
+        // mark the file executable to verify the mode survives the temp/persist cycle
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+
+        write_file(&path, "replaced").unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
         assert_eq!(fs::read_to_string(&path).unwrap(), "replaced");
     }
 
