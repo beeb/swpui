@@ -74,16 +74,13 @@ impl PreviewMatch {
         let get_line = |idx: usize| -> &str {
             let start = line_starts[idx];
             let end = line_starts.get(idx + 1).map_or(content.len(), |&s| s - 1);
-            content[start..end].trim_end_matches('\n')
+            content[start..end].trim_end_matches(['\r', '\n'])
         };
 
         let line_number = line_idx + 1;
 
         let context_before: Box<[ContextLine]> = (line_idx.saturating_sub(CONTEXT_LINES)..line_idx)
-            .map(|i| ContextLine {
-                line_number: i + 1,
-                content: truncate_right(get_line(i), 0),
-            })
+            .map(|i| ContextLine::from_content(content, line_starts, i))
             .collect();
 
         let line_idx_end = if byte_end - byte_start > 1024 {
@@ -97,16 +94,16 @@ impl PreviewMatch {
 
         let context_after: Box<[ContextLine]> = ((line_idx_end + 1)
             ..=(line_idx_end + CONTEXT_LINES).min(num_lines.saturating_sub(1)))
-            .map(|i| ContextLine {
-                line_number: i + 1,
-                content: truncate_right(get_line(i), 0),
-            })
+            .map(|i| ContextLine::from_content(content, line_starts, i))
             .collect();
 
         let line_start_byte = line_starts[line_idx];
         let last_line_byte = line_starts[line_idx_end];
+        let first_line_str = get_line(line_idx);
         let last_line_str = get_line(line_idx_end);
-        let mut match_col_start = byte_start - line_start_byte;
+        // clamp to the trimmed line length so a match landing on `\r` (e.g. from
+        // a multiline regex) doesn't produce an out-of-range slice index downstream
+        let mut match_col_start = (byte_start - line_start_byte).min(first_line_str.len());
         let mut match_col_end = (byte_end - last_line_byte).min(last_line_str.len());
 
         let kind = if line_idx_end == line_idx {
@@ -168,6 +165,23 @@ impl PreviewMatch {
 pub struct ContextLine {
     pub line_number: usize,
     pub content: Box<str>,
+}
+
+impl ContextLine {
+    fn new(line_idx: usize, line: &str) -> Self {
+        Self {
+            line_number: line_idx + 1,
+            content: truncate_right(line, 0),
+        }
+    }
+
+    fn from_content(content: &str, line_starts: &[usize], line_idx: usize) -> Self {
+        let start = line_starts[line_idx];
+        let end = line_starts
+            .get(line_idx + 1)
+            .map_or(content.len(), |&s| s - 1);
+        Self::new(line_idx, content[start..end].trim_end_matches(['\r', '\n']))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -280,6 +294,54 @@ mod tests {
         let after = &line_content[m.match_col_end..];
         assert_eq!(before.len(), MAX_CONTEXT_CHARS);
         assert_eq!(after.len(), MAX_CONTEXT_CHARS);
+    }
+
+    #[test]
+    fn build_preview_strips_crlf_line_endings() {
+        let content = "a\r\nb\r\nc\r\nmatch\r\nd\r\ne\r\n";
+        let pos = content.find("match").unwrap_or_else(|| unreachable!());
+        let data = PreviewData::new(content, &[(pos, pos + 5)]);
+        let m = &data.matches[0];
+
+        assert_eq!(&*m.context_before[0].content, "b");
+        assert_eq!(&*m.context_before[1].content, "c");
+        assert_eq!(&*m.context_after[0].content, "d");
+        assert_eq!(&*m.context_after[1].content, "e");
+
+        let PreviewMatchKind::SingleLine { line_content, .. } = &m.kind else {
+            panic!("expected SingleLine");
+        };
+        assert_eq!(&**line_content, "match");
+        assert_eq!(m.match_col_end, 5);
+    }
+
+    #[test]
+    fn build_preview_clamps_match_col_start_when_match_starts_on_line_terminator() {
+        // a match whose byte_start lands on `\n` produces a column past the
+        // \r-stripped line length; without clamping, downstream slicing of
+        // matched_lines[0] would panic
+        let content = "foo bar\r\nbaz\r\n";
+        let lf_byte = 8;
+        let baz_end = 12;
+        let data = PreviewData::new(content, &[(lf_byte, baz_end)]);
+        let m = &data.matches[0];
+        let PreviewMatchKind::MultiLine { matched_lines, .. } = &m.kind else {
+            panic!("expected MultiLine");
+        };
+        assert!(m.match_col_start <= matched_lines[0].len());
+    }
+
+    #[test]
+    fn build_preview_strips_crlf_in_multiline_match() {
+        let content = "foo\r\nbar\r\nbaz\r\n";
+        let data = PreviewData::new(content, &[(0, 8)]);
+        let m = &data.matches[0];
+        let PreviewMatchKind::MultiLine { matched_lines, .. } = &m.kind else {
+            panic!("expected MultiLine");
+        };
+        assert_eq!(matched_lines.len(), 2);
+        assert_eq!(&*matched_lines[0], "foo");
+        assert_eq!(&*matched_lines[1], "bar");
     }
 
     #[test]
