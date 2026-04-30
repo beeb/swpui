@@ -311,7 +311,12 @@ fn build_multiline_match_lines(
             out.push(Line::from(Span::styled(format!("- {line}"), removed_style)));
         }
         if !effective_replacement.is_empty() || !prefix.is_empty() || !suffix.is_empty() {
-            let repl_lines: Vec<&str> = effective_replacement.split('\n').collect();
+            // strip trailing `\r` from each piece so a CRLF replacement renders
+            // cleanly (without leaking a control char into the displayed span)
+            let repl_lines: Vec<&str> = effective_replacement
+                .split('\n')
+                .map(|s| s.trim_end_matches('\r'))
+                .collect();
             let last_idx = repl_lines.len() - 1;
             if last_idx == 0 {
                 out.push(Line::from(Span::styled(
@@ -562,6 +567,33 @@ mod tests {
         let preview = make_preview_multiline(&["foo", "bar"], 0, 3);
         // header(1) + 2 removed, no replacement lines (empty repl + empty prefix + empty suffix)
         assert_eq!(count_match_lines(&info, &preview, ""), 3);
+    }
+
+    fn preview_lines(preview: &PreviewMatch) -> Box<[Box<str>]> {
+        match &preview.kind {
+            PreviewMatchKind::MultiLine { matched_lines, .. } => matched_lines.clone(),
+            PreviewMatchKind::SingleLine { .. } => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn multiline_replacement_strips_carriage_return_from_rendered_spans() {
+        // a CRLF replacement (e.g. typed as `\r\n` in RegexMultiline mode and expanded)
+        // must not leak the trailing `\r` into the rendered diff spans
+        let info = make_info();
+        let preview = make_preview_multiline(&["  foo", "bar"], 2, 3);
+        let lines =
+            build_multiline_match_lines(&info, &preview, &preview_lines(&preview), "a\r\nb");
+        for line in &lines {
+            for span in &line.spans {
+                assert!(
+                    !span.content.contains('\r'),
+                    "rendered span leaked a '\\r': {:?}",
+                    span.content
+                );
+            }
+        }
+        assert_eq!(lines.len(), 4);
     }
 
     #[test]
