@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.3.0] - 2026-04-30
+
+### Added
+
+
+-  add package output to flake ([#9](https://github.com/beeb/swpui/pull/9)) - ([f12dc0b](https://github.com/beeb/swpui/commit/f12dc0b4053978622f448ebd432680d599904ddd))
+
+### Changed
+
+- **(preview)** data module ([#11](https://github.com/beeb/swpui/pull/11)) - ([4dbeed5](https://github.com/beeb/swpui/commit/4dbeed539b4b57e210fb28bc0851c13e9d442a75))
+
+
+
+### Fixed
+
+- **(rename)** temp file permissions ([#12](https://github.com/beeb/swpui/pull/12)) - ([50fd433](https://github.com/beeb/swpui/commit/50fd43357f712e4d23695a9207893f558bdfec77))
+
+
+-  CRLF line endings support ([#13](https://github.com/beeb/swpui/pull/13)) - ([b303792](https://github.com/beeb/swpui/commit/b303792a9354fe7ff358bfbd266b8aa0c51729b6))
+
+
+
+
+**Full Changelog**: [0.2.0...0.3.0](https://github.com/beeb/swpui/compare/v0.2.0...v0.3.0)
+
+
 ## [0.2.0] - 2026-04-29
 
 ### Added
