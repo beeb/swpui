@@ -26,6 +26,7 @@ use ratatui::{
 use tracing::debug;
 
 use crate::{
+    path::ResponsivePath,
     prelude::OrPanic as _,
     preview::{
         PreviewCommand, PreviewRequest, PreviewResult, PreviewWorker, WantedSet, data::PreviewData,
@@ -169,8 +170,10 @@ impl App {
             match result {
                 SearchResult::FileMatches {
                     generation,
-                    file_matches,
+                    mut file_matches,
                 } if generation == self.generation => {
+                    file_matches.responsive_path =
+                        ResponsivePath::new(&file_matches.path, Some(&self.root)).ok();
                     self.results.push(file_matches);
                 }
                 SearchResult::Complete {

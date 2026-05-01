@@ -9,10 +9,12 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Paragraph, StatefulWidget as _},
 };
+use unicode_width::UnicodeWidthStr as _;
 
 use super::focused_border_style;
 use crate::{
     app::App,
+    path::truncate_left,
     preview::data::{CONTEXT_LINES, ContextLine, PreviewData, PreviewMatch, PreviewMatchKind},
     replace::{case_aware_replacement, effective_replacement, expand_captures},
     types::{MatchInfo, MatchMode, Pane},
@@ -133,17 +135,19 @@ fn format_title(app: &App, area_width: u16) -> String {
     app.results.get(app.selected_file()).map_or_else(
         || "Preview".to_string(),
         |fm| {
-            let rel = fm.path.strip_prefix(&app.root).unwrap_or(&fm.path);
-            let path_str = rel.display().to_string();
+            let path_str = fm
+                .responsive_path
+                .as_ref()
+                .map_or(fm.path.to_string_lossy().into(), ToString::to_string);
             let prefix = "Preview: ";
             let full = format!("{prefix}{path_str}");
-            if full.len() <= title_max {
+            if full.width() <= title_max {
                 full
             } else {
                 // truncate path from the left with ellipsis
-                let avail = title_max.saturating_sub(prefix.len() + 1); // 1 for ellipsis
-                let start = path_str.len().saturating_sub(avail);
-                format!("{prefix}\u{2026}{}", &path_str[start..])
+                let excess = prefix.len() + 1 + path_str.width() - title_max; // 1 for ellipsis
+                let path_str = truncate_left(path_str, excess);
+                format!("{prefix}\u{2026}{}", &path_str)
             }
         },
     )

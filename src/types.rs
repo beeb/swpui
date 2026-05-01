@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::path::ResponsivePath;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MatchMode {
     #[default]
@@ -35,6 +37,7 @@ pub struct MatchInfo {
 #[derive(Debug, Clone)]
 pub struct FileMatches {
     pub path: PathBuf,
+    pub responsive_path: Option<ResponsivePath>,
     pub matches: Vec<MatchInfo>,
     pub content_hash: [u8; 32],
 }
@@ -133,6 +136,7 @@ mod tests {
     fn file_matches_match_count() {
         let fm = FileMatches {
             path: PathBuf::from("test.rs"),
+            responsive_path: None,
             matches: vec![
                 MatchInfo {
                     byte_offset_start: 0,

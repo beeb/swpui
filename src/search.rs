@@ -207,6 +207,7 @@ impl SearchWorker {
                         generation: request.generation,
                         file_matches: FileMatches {
                             path: path.clone(),
+                            responsive_path: None,
                             matches,
                             content_hash,
                         },
