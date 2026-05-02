@@ -1,4 +1,6 @@
 use std::{
+    cell::RefCell,
+    collections::VecDeque,
     fmt,
     path::{Component, MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path},
 };
@@ -6,11 +8,14 @@ use std::{
 use itertools::{FoldWhile, Itertools as _};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr as _};
 
+const CACHE_SIZE: usize = 4;
+
 /// A path that can be abbreviated depending on the available space.
 #[derive(Debug, Clone)]
 pub struct ResponsivePath {
     dirs: Vec<String>,
     last: Option<String>,
+    cache: Cache,
 }
 
 impl fmt::Display for ResponsivePath {
@@ -48,7 +53,11 @@ impl ResponsivePath {
             })
             .collect();
         let last = dirs.pop();
-        Ok(Self { dirs, last })
+        Ok(Self {
+            dirs,
+            last,
+            cache: Cache::default(),
+        })
     }
 
     /// Format the path, progressively abbreviating to fit `width` display columns.
@@ -61,13 +70,20 @@ impl ResponsivePath {
     /// 6. Right-aligned (left-truncated) compact form
     #[must_use]
     pub fn to_width(&self, width: usize) -> String {
+        if let Some(out) = self.cache.get(width) {
+            return out;
+        }
         if self.fits(None, width) {
-            return self.join_path(None);
+            let res = self.join_path(None);
+            self.cache.insert(width, res.clone());
+            return res;
         }
 
         for n in (1..=3).rev() {
             if self.fits(Some(n), width) {
-                return self.join_path(Some(n));
+                let res = self.join_path(Some(n));
+                self.cache.insert(width, res.clone());
+                return res;
             }
         }
 
@@ -76,10 +92,13 @@ impl ResponsivePath {
         let compact_w = compact.width();
 
         if compact_w <= width {
+            self.cache.insert(width, compact.clone());
             return compact;
         }
 
-        truncate_left(compact, compact_w - width)
+        let res = truncate_left(compact, compact_w - width);
+        self.cache.insert(width, res.clone());
+        res
     }
 
     /// Checks whether the path would fit with each segment being `truncate` chars (and filename not abbreviated)
@@ -193,6 +212,37 @@ impl ResponsivePath {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+struct Cache(RefCell<VecDeque<(usize, String)>>);
+
+impl Cache {
+    fn get(&self, width: usize) -> Option<String> {
+        self.0
+            .borrow()
+            .iter()
+            .find_map(|(w, s)| if w == &width { Some(s.clone()) } else { None })
+    }
+
+    fn insert(&self, width: usize, s: impl Into<String>) {
+        let s = s.into();
+        {
+            let mut this = self.0.borrow_mut();
+            if let Some(pos) = this.iter().position(|(w, _)| w == &width) {
+                this.remove(pos);
+            }
+            this.push_front((width, s));
+        }
+        self.evict();
+    }
+
+    fn evict(&self) {
+        let mut this = self.0.borrow_mut();
+        while this.len() > CACHE_SIZE {
+            this.pop_back();
+        }
+    }
+}
+
 /// Trim characters on the left until it fits
 #[must_use]
 pub fn truncate_left(mut s: String, mut excess_cols: usize) -> String {
@@ -214,6 +264,7 @@ mod tests {
         ResponsivePath {
             dirs: dirs.iter().map(|s| (*s).to_string()).collect(),
             last: last.map(ToString::to_string),
+            cache: Cache::default(),
         }
     }
 
