@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 
 use rat_widget::scrolled::{Scroll, ScrollArea, ScrollAreaState};
 use ratatui::{
@@ -16,7 +16,7 @@ use crate::{
     app::App,
     path::truncate_left,
     preview::data::{CONTEXT_LINES, ContextLine, PreviewData, PreviewMatch, PreviewMatchKind},
-    replace::{case_aware_replacement, effective_replacement, expand_captures},
+    replace::{Replacement, effective_replacement},
     types::{MatchInfo, MatchMode, Pane},
     utils::TruncatedLine,
 };
@@ -383,24 +383,27 @@ fn count_match_lines(info: &MatchInfo, preview: &PreviewMatch, replacement: &str
     n
 }
 
-fn matched_text_from_preview(preview: &PreviewMatch) -> std::borrow::Cow<'_, str> {
+/// Build a `(content, range)` pair for the orchestrator from a `PreviewMatch`.
+///
+/// `SingleLine` borrows the line content directly. `MultiLine` stitches the matched lines
+/// with `\n` so word-boundary expansion behaves identically to operating on the original
+/// file content (newlines are not word characters, so expansion stays inside the first/last
+/// matched line).
+fn match_context(preview: &PreviewMatch) -> (Cow<'_, str>, Range<usize>) {
     match &preview.kind {
-        PreviewMatchKind::SingleLine { line_content, .. } => std::borrow::Cow::Borrowed(
-            &line_content[preview.match_col_start..preview.match_col_end],
+        PreviewMatchKind::SingleLine { line_content, .. } => (
+            Cow::Borrowed(line_content.as_ref()),
+            preview.match_col_start..preview.match_col_end,
         ),
         PreviewMatchKind::MultiLine { matched_lines, .. } => {
-            let last = matched_lines.len() - 1;
-            let mut parts = Vec::with_capacity(matched_lines.len());
-            for (i, line) in matched_lines.iter().enumerate() {
-                if i == 0 {
-                    parts.push(&line[preview.match_col_start..]);
-                } else if i == last {
-                    parts.push(&line[..preview.match_col_end]);
-                } else {
-                    parts.push(line);
-                }
-            }
-            std::borrow::Cow::Owned(parts.join("\n"))
+            let stitched: String = matched_lines
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<&str>>()
+                .join("\n");
+            let last_line_len = matched_lines.last().map_or(0, |l| l.len());
+            let end = stitched.len() - (last_line_len - preview.match_col_end);
+            (Cow::Owned(stitched), preview.match_col_start..end)
         }
     }
 }
@@ -437,13 +440,9 @@ fn build_preview_lines(
             lines.push(build_match_header(preview, is_selected));
             lines.extend(build_context_lines(&preview.context_before));
 
-            let matched_text = matched_text_from_preview(preview);
-            let expanded = expand_captures(replacement, &info.captures);
-            let effective_replacement = if mode == MatchMode::CaseAware {
-                case_aware_replacement(&matched_text, &expanded)
-            } else {
-                expanded
-            };
+            let (ctx, range) = match_context(preview);
+            let effective_replacement =
+                Replacement::new(info, &ctx, range, replacement, mode).compute();
             match &preview.kind {
                 PreviewMatchKind::SingleLine { .. } => {
                     lines.push(build_match_line(
@@ -624,5 +623,45 @@ mod tests {
             .collect();
         assert_eq!(plus_lines.len(), 1);
         assert!(plus_lines[0].spans[0].content.contains("    replacement"));
+    }
+
+    #[test]
+    fn case_aware_substring_in_camel_identifier_renders_camel_replacement() {
+        // regression: a CaseAware match of "foo" (cols 0..3) inside the camelCase identifier
+        // "fooBar" must render the replacement "new_thing" as "newThing" the same way the
+        // file write does. Before the shared-pipeline refactor the preview rendered
+        // "new_thing" because it skipped word-boundary expansion.
+        let matches = vec![MatchInfo {
+            byte_offset_start: 0,
+            byte_offset_end: 3,
+            skip: false,
+            captures: Box::new([]),
+        }];
+        let preview = PreviewData {
+            matches: vec![make_preview_single("fooBar", 0, 3)].into(),
+            size: 0,
+        };
+        let lines = build_preview_lines(
+            &matches,
+            &preview,
+            "new_thing",
+            MatchMode::CaseAware,
+            false,
+            0,
+            80,
+            0..usize::MAX,
+        );
+        let rendered: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect();
+        assert!(
+            rendered.contains("newThing"),
+            "expected preview to render camelCase replacement; got {rendered:?}"
+        );
+        assert!(
+            !rendered.contains("new_thing"),
+            "preview leaked the un-cased replacement; got {rendered:?}"
+        );
     }
 }

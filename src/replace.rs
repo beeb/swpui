@@ -14,38 +14,171 @@ const CASES: [Case<'static>; 6] = [
     Case::UpperSnake,
 ];
 
-/// Adjust replacement text according to casing of the match (expanded to word boundaries).
-#[must_use]
-pub fn case_aware_replacement<'a>(match_word: &str, replacement: &'a str) -> Cow<'a, str> {
-    if match_word.is_empty() || replacement.is_empty() {
-        return Cow::Borrowed(replacement);
+/// Inputs needed to produce the final replacement string for a single match.
+pub struct Replacement<'c, 'r> {
+    content: &'c str,
+    match_range: Range<usize>,
+    repl_template: &'r str,
+    mode: MatchMode,
+    captures: &'r [Box<str>],
+}
+
+impl<'c, 'r> Replacement<'c, 'r> {
+    /// Build a replacement description from a match and the text surrounding it.
+    ///
+    /// `content` is the text the match sits inside (the full file content for the on-disk
+    /// path, or per-match line/stitched content for the preview), and `match_range` is the
+    /// byte range of the match within that `content`. `repl_template` is the raw replacement
+    /// template after escape-sequence expansion (see [`effective_replacement`]).
+    /// Captures are taken from [`MatchInfo`] so callers do not need to thread them separately.
+    #[must_use]
+    pub fn new(
+        info: &'r MatchInfo,
+        content: &'c str,
+        match_range: Range<usize>,
+        repl_template: &'r str,
+        mode: MatchMode,
+    ) -> Self {
+        Self {
+            content,
+            match_range,
+            repl_template,
+            mode,
+            captures: &info.captures,
+        }
     }
 
-    let Some(matched_case) = detect_case(match_word) else {
-        return Cow::Borrowed(replacement);
-    };
-
-    // detect the replacement's case so that convert_case parses word boundaries correctly
-    // before converting to the matched case
-    let repl_case = detect_case(replacement);
-
-    // if the matched text is `Flat` but the replacement is in a more specific lowercase case
-    // (snake, kebab, camel), respect the replacement's case as-is
-    if matched_case == Case::Flat
-        && repl_case.is_some_and(|c| matches!(c, Case::Snake | Case::Kebab | Case::Camel))
-    {
-        return Cow::Borrowed(replacement);
+    /// Compute the final replacement string.
+    ///
+    /// Expands `$0..$9` capture references, then in `CaseAware` mode walks `match_range`
+    /// outward to its surrounding word boundary and re-cases the replacement to match.
+    #[must_use]
+    pub fn compute(self) -> Cow<'r, str> {
+        let expanded = self.expand_captures();
+        if self.mode != MatchMode::CaseAware {
+            return expanded;
+        }
+        match expanded {
+            Cow::Borrowed(s) => self.case_aware_replacement(s),
+            Cow::Owned(s) => Cow::Owned(self.case_aware_replacement(&s).into_owned()),
+        }
     }
 
-    let converted = if let Some(from_case) = repl_case {
-        replacement.from_case(from_case).to_case(matched_case)
-    } else {
-        replacement.to_case(matched_case)
-    };
-    if converted == replacement {
-        return Cow::Borrowed(replacement);
+    /// Expand capture group references (`$0`-`$9`) in the replacement template.
+    ///
+    /// `$$` produces a literal `$`. References to non-participating groups produce an empty string.
+    /// Returns a borrowed slice when no `$` is present.
+    fn expand_captures(&self) -> Cow<'r, str> {
+        if !self.repl_template.contains('$') || self.captures.is_empty() {
+            return Cow::Borrowed(self.repl_template);
+        }
+        let mut result = String::with_capacity(self.repl_template.len());
+        let mut chars = self.repl_template.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '$' {
+                match chars.peek() {
+                    Some('$') => {
+                        chars.next();
+                        result.push('$');
+                    }
+                    Some(&d) if d.is_ascii_digit() => {
+                        chars.next();
+                        let idx = (d as u8 - b'0') as usize;
+                        if let Some(cap) = self.captures.get(idx) {
+                            result.push_str(cap);
+                        }
+                    }
+                    _ => result.push('$'),
+                }
+            } else {
+                result.push(c);
+            }
+        }
+        Cow::Owned(result)
     }
-    Cow::Owned(converted)
+
+    /// Adjust replacement text according to the case of the surrounding identifier at `match_range`.
+    ///
+    /// Walks `match_range` outward to its full word boundaries before detecting the case, so that a
+    /// substring match inside an identifier produces a replacement matching the whole identifier's
+    /// case (e.g. `foo` matched inside `fooBar` is replaced as if matching `fooBar`).
+    fn case_aware_replacement<'a>(&self, replacement: &'a str) -> Cow<'a, str> {
+        if replacement.is_empty() {
+            return Cow::Borrowed(replacement);
+        }
+
+        let word_range = self.expand_to_word();
+        let match_word = &self.content[word_range];
+        if match_word.is_empty() {
+            return Cow::Borrowed(replacement);
+        }
+
+        let Some(matched_case) = detect_case(match_word) else {
+            return Cow::Borrowed(replacement);
+        };
+
+        // detect the replacement's case so that convert_case parses word boundaries correctly
+        // before converting to the matched case
+        let repl_case = detect_case(replacement);
+
+        // if the matched text is `Flat` but the replacement is in a more specific lowercase case
+        // (snake, kebab, camel), respect the replacement's case as-is
+        if matched_case == Case::Flat
+            && repl_case.is_some_and(|c| matches!(c, Case::Snake | Case::Kebab | Case::Camel))
+        {
+            return Cow::Borrowed(replacement);
+        }
+
+        let converted = if let Some(from_case) = repl_case {
+            replacement.from_case(from_case).to_case(matched_case)
+        } else {
+            replacement.to_case(matched_case)
+        };
+        if converted == replacement {
+            return Cow::Borrowed(replacement);
+        }
+        Cow::Owned(converted)
+    }
+
+    /// Expand the byte range to cover the contiguous identifier surrounding the match.
+    ///
+    /// Walks left and right by alphanumeric characters, `_`, and `-`. Leading and trailing
+    /// `_` or `-` in the *context* (not the matched bytes themselves) are trimmed so that
+    /// separators only count when they sit between alphanumeric characters.
+    fn expand_to_word(&self) -> Range<usize> {
+        let Range { start, end } = self.match_range;
+        let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '-';
+
+        // walk left from `start`, taking extending chars right-to-left
+        let new_start = self.content[..start]
+            .char_indices()
+            .rev()
+            .take_while(|&(_, c)| is_word(c))
+            .last()
+            .map_or(start, |(i, _)| i);
+
+        // walk right from `end`, taking extending chars left-to-right
+        let new_end = self.content[end..]
+            .char_indices()
+            .take_while(|&(_, c)| is_word(c))
+            .last()
+            .map_or(end, |(i, c)| end + i + c.len_utf8());
+
+        // trim leading `_`/`-` from the expansion (up to original match)
+        let new_start = self.content[new_start..start]
+            .char_indices()
+            .find(|&(_, c)| c.is_alphanumeric())
+            .map_or(start, |(i, _)| new_start + i);
+
+        // trim trailing `_`/`-` from the expansion (after the original match)
+        let new_end = self.content[end..new_end]
+            .char_indices()
+            .rev()
+            .find(|&(_, c)| c.is_alphanumeric())
+            .map_or(end, |(i, c)| end + i + c.len_utf8());
+
+        new_start..new_end
+    }
 }
 
 #[must_use]
@@ -65,14 +198,8 @@ pub fn apply_replacements(
     active.sort_unstable_by_key(|m| Reverse(m.byte_offset_start));
 
     for m in active {
-        let expanded = expand_captures(replacement, &m.captures);
         let match_range = m.byte_offset_start..m.byte_offset_end;
-        let repl = if mode == MatchMode::CaseAware {
-            let word_range = expand_to_word(&result, match_range.clone());
-            case_aware_replacement(&result[word_range], &expanded)
-        } else {
-            expanded
-        };
+        let repl = Replacement::new(m, &result, match_range.clone(), replacement, mode).compute();
         result.replace_range(match_range, &repl);
     }
     result
@@ -106,51 +233,6 @@ pub fn write_file(path: impl AsRef<Path>, content: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Detect the case of a string by trying each case from least to most specific.
-fn detect_case(s: &str) -> Option<Case<'static>> {
-    CASES.iter().copied().find(|&case| s == s.to_case(case))
-}
-
-/// Expand the byte range to cover the contiguous identifier surrounding the match.
-///
-/// Walks left and right by alphanumeric characters, `_`, and `-`. Leading and trailing
-/// `_` or `-` in the *context* (not the matched bytes themselves) are trimmed so that
-/// separators only count when they sit between alphanumeric characters.
-fn expand_to_word(content: &str, range: Range<usize>) -> Range<usize> {
-    let Range { start, end } = range;
-    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '-';
-
-    // walk left from `start`, taking extending chars right-to-left
-    let new_start = content[..start]
-        .char_indices()
-        .rev()
-        .take_while(|&(_, c)| is_word(c))
-        .last()
-        .map_or(start, |(i, _)| i);
-
-    // walk right from `end`, taking extending chars left-to-right
-    let new_end = content[end..]
-        .char_indices()
-        .take_while(|&(_, c)| is_word(c))
-        .last()
-        .map_or(end, |(i, c)| end + i + c.len_utf8());
-
-    // trim leading `_`/`-` from the expansion (up to original match)
-    let new_start = content[new_start..start]
-        .char_indices()
-        .find(|&(_, c)| c.is_alphanumeric())
-        .map_or(start, |(i, _)| new_start + i);
-
-    // trim trailing `_`/`-` from the expansion (after the original match)
-    let new_end = content[end..new_end]
-        .char_indices()
-        .rev()
-        .find(|&(_, c)| c.is_alphanumeric())
-        .map_or(end, |(i, c)| end + i + c.len_utf8());
-
-    new_start..new_end
-}
-
 /// Return the effective replacement string, expanding escape sequences when in `RegexMultiline` mode.
 #[must_use]
 pub fn effective_replacement(raw: &str, mode: MatchMode) -> Cow<'_, str> {
@@ -159,40 +241,6 @@ pub fn effective_replacement(raw: &str, mode: MatchMode) -> Cow<'_, str> {
     } else {
         Cow::Borrowed(raw)
     }
-}
-
-/// Expand capture group references (`$0`-`$9`) in a replacement template.
-///
-/// `$$` produces a literal `$`. References to non-participating groups produce an empty string.
-/// Returns a borrowed slice when no `$` is present.
-#[must_use]
-pub fn expand_captures<'a>(template: &'a str, captures: &[Box<str>]) -> Cow<'a, str> {
-    if !template.contains('$') || captures.is_empty() {
-        return Cow::Borrowed(template);
-    }
-    let mut result = String::with_capacity(template.len());
-    let mut chars = template.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '$' {
-            match chars.peek() {
-                Some('$') => {
-                    chars.next();
-                    result.push('$');
-                }
-                Some(&d) if d.is_ascii_digit() => {
-                    chars.next();
-                    let idx = (d as u8 - b'0') as usize;
-                    if let Some(cap) = captures.get(idx) {
-                        result.push_str(cap);
-                    }
-                }
-                _ => result.push('$'),
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    Cow::Owned(result)
 }
 
 /// Expand escape sequences in a string (`\n`, `\r`, `\t`, `\\`).
@@ -224,6 +272,11 @@ pub fn expand_escape_sequences(s: &str) -> Cow<'_, str> {
     Cow::Owned(result)
 }
 
+/// Detect the case of a string by trying each case from least to most specific.
+fn detect_case(s: &str) -> Option<Case<'static>> {
+    CASES.iter().copied().find(|&case| s == s.to_case(case))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -244,6 +297,24 @@ mod tests {
             skip: true,
             ..make_match(start, end)
         }
+    }
+
+    fn case_aware<'a>(
+        info: &'a MatchInfo,
+        content: &'a str,
+        range: Range<usize>,
+        repl: &'a str,
+    ) -> Cow<'a, str> {
+        Replacement::new(info, content, range, repl, MatchMode::CaseAware).compute()
+    }
+
+    fn expand<'a>(info: &'a MatchInfo, template: &'a str) -> Cow<'a, str> {
+        Replacement::new(info, "", 0..0, template, MatchMode::Regex).compute()
+    }
+
+    fn word(content: &str, range: Range<usize>) -> Range<usize> {
+        let info = make_match(range.start, range.end);
+        Replacement::new(&info, content, range, "", MatchMode::Literal).expand_to_word()
     }
 
     #[test]
@@ -334,202 +405,225 @@ mod tests {
 
     #[test]
     fn case_aware_snake_to_upper_snake() {
+        let info = make_match(0, 7);
         assert_eq!(
-            case_aware_replacement("FOO_BAR", "baz_qux").as_ref(),
+            case_aware(&info, "FOO_BAR", 0..7, "baz_qux").as_ref(),
             "BAZ_QUX"
         );
     }
 
     #[test]
     fn case_aware_snake_to_kebab() {
+        let info = make_match(0, 7);
         assert_eq!(
-            case_aware_replacement("foo-bar", "baz_qux").as_ref(),
+            case_aware(&info, "foo-bar", 0..7, "baz_qux").as_ref(),
             "baz-qux"
         );
     }
 
     #[test]
     fn case_aware_pascal_to_pascal() {
+        let info = make_match(0, 6);
         assert_eq!(
-            case_aware_replacement("FooBar", "BazQux").as_ref(),
+            case_aware(&info, "FooBar", 0..6, "BazQux").as_ref(),
             "BazQux"
         );
     }
 
     #[test]
     fn case_aware_pascal_to_camel() {
+        let info = make_match(0, 6);
         assert_eq!(
-            case_aware_replacement("fooBar", "BazQux").as_ref(),
+            case_aware(&info, "fooBar", 0..6, "BazQux").as_ref(),
             "bazQux"
         );
     }
 
     #[test]
     fn case_aware_flat_preserves_snake_replacement() {
+        let info = make_match(0, 6);
         assert_eq!(
-            case_aware_replacement("foobar", "baz_qux").as_ref(),
+            case_aware(&info, "foobar", 0..6, "baz_qux").as_ref(),
             "baz_qux"
         );
         assert!(matches!(
-            case_aware_replacement("foobar", "baz_qux"),
+            case_aware(&info, "foobar", 0..6, "baz_qux"),
             Cow::Borrowed(_)
         ));
     }
 
     #[test]
     fn case_aware_flat_to_flat() {
+        let info = make_match(0, 6);
         assert_eq!(
-            case_aware_replacement("foobar", "bazqux").as_ref(),
+            case_aware(&info, "foobar", 0..6, "bazqux").as_ref(),
             "bazqux"
         );
     }
 
     #[test]
     fn case_aware_flat_converts_pascal_replacement() {
+        let info = make_match(0, 6);
         assert_eq!(
-            case_aware_replacement("foobar", "BazQux").as_ref(),
+            case_aware(&info, "foobar", 0..6, "BazQux").as_ref(),
             "bazqux"
         );
     }
 
     #[test]
     fn case_aware_same_case_no_change() {
+        let info = make_match(0, 7);
         assert_eq!(
-            case_aware_replacement("foo_bar", "baz_qux").as_ref(),
+            case_aware(&info, "foo_bar", 0..7, "baz_qux").as_ref(),
             "baz_qux"
         );
         assert!(matches!(
-            case_aware_replacement("foo_bar", "baz_qux"),
+            case_aware(&info, "foo_bar", 0..7, "baz_qux"),
             Cow::Borrowed(_)
         ));
     }
 
     #[test]
     fn case_aware_empty_matched() {
-        assert_eq!(case_aware_replacement("", "bar").as_ref(), "bar");
+        let info = make_match(0, 0);
+        assert_eq!(case_aware(&info, "", 0..0, "bar").as_ref(), "bar");
         assert!(matches!(
-            case_aware_replacement("", "bar"),
+            case_aware(&info, "", 0..0, "bar"),
             Cow::Borrowed(_)
         ));
     }
 
     #[test]
     fn case_aware_empty_replacement() {
-        assert_eq!(case_aware_replacement("Foo", "").as_ref(), "");
+        let info = make_match(0, 3);
+        assert_eq!(case_aware(&info, "Foo", 0..3, "").as_ref(), "");
         assert!(matches!(
-            case_aware_replacement("Foo", ""),
+            case_aware(&info, "Foo", 0..3, ""),
             Cow::Borrowed(_)
         ));
     }
 
     #[test]
     fn case_aware_single_word_pascal() {
-        assert_eq!(case_aware_replacement("Hello", "world").as_ref(), "World");
+        let info = make_match(0, 5);
+        assert_eq!(case_aware(&info, "Hello", 0..5, "world").as_ref(), "World");
     }
 
     #[test]
     fn case_aware_single_word_upper() {
-        assert_eq!(case_aware_replacement("HELLO", "world").as_ref(), "WORLD");
+        let info = make_match(0, 5);
+        assert_eq!(case_aware(&info, "HELLO", 0..5, "world").as_ref(), "WORLD");
+    }
+
+    #[test]
+    fn case_aware_expands_range_to_word_boundary() {
+        // matched bytes are just "foo" but the surrounding identifier is camelCase;
+        // the function must walk to the word boundary and pick camelCase output
+        let info = make_match(0, 3);
+        assert_eq!(
+            case_aware(&info, "fooBar", 0..3, "new_thing").as_ref(),
+            "newThing"
+        );
     }
 
     #[test]
     fn expand_to_word_camel_case_middle() {
-        assert_eq!(expand_to_word("fooBar", 0..3), 0..6);
+        assert_eq!(word("fooBar", 0..3), 0..6);
     }
 
     #[test]
     fn expand_to_word_pascal_case_middle() {
-        assert_eq!(expand_to_word("FooBar", 3..6), 0..6);
+        assert_eq!(word("FooBar", 3..6), 0..6);
     }
 
     #[test]
     fn expand_to_word_snake_case_middle() {
-        assert_eq!(expand_to_word("foo_bar_baz", 4..7), 0..11);
+        assert_eq!(word("foo_bar_baz", 4..7), 0..11);
     }
 
     #[test]
     fn expand_to_word_kebab_case_middle() {
-        assert_eq!(expand_to_word("foo-bar-baz", 4..7), 0..11);
+        assert_eq!(word("foo-bar-baz", 4..7), 0..11);
     }
 
     #[test]
     fn expand_to_word_upper_snake_middle() {
-        assert_eq!(expand_to_word("FOO_BAR_BAZ", 4..7), 0..11);
+        assert_eq!(word("FOO_BAR_BAZ", 4..7), 0..11);
     }
 
     #[test]
     fn expand_to_word_match_at_left_edge_of_identifier() {
-        assert_eq!(expand_to_word("fooBar", 0..3), 0..6);
+        assert_eq!(word("fooBar", 0..3), 0..6);
     }
 
     #[test]
     fn expand_to_word_match_at_right_edge_of_identifier() {
-        assert_eq!(expand_to_word("fooBar", 3..6), 0..6);
+        assert_eq!(word("fooBar", 3..6), 0..6);
     }
 
     #[test]
     fn expand_to_word_trims_leading_underscore_outside_match() {
-        assert_eq!(expand_to_word("_foo", 1..4), 1..4);
+        assert_eq!(word("_foo", 1..4), 1..4);
     }
 
     #[test]
     fn expand_to_word_trims_trailing_underscore_outside_match() {
-        assert_eq!(expand_to_word("foo_", 0..3), 0..3);
+        assert_eq!(word("foo_", 0..3), 0..3);
     }
 
     #[test]
     fn expand_to_word_trims_leading_hyphen_outside_match() {
-        assert_eq!(expand_to_word("-foo", 1..4), 1..4);
+        assert_eq!(word("-foo", 1..4), 1..4);
     }
 
     #[test]
     fn expand_to_word_keeps_separator_in_match_itself() {
-        assert_eq!(expand_to_word("_foo", 0..4), 0..4);
+        assert_eq!(word("_foo", 0..4), 0..4);
     }
 
     #[test]
     fn expand_to_word_match_at_start_of_content() {
-        assert_eq!(expand_to_word("fooBar", 0..3), 0..6);
+        assert_eq!(word("fooBar", 0..3), 0..6);
     }
 
     #[test]
     fn expand_to_word_match_at_end_of_content() {
-        assert_eq!(expand_to_word("fooBar", 3..6), 0..6);
+        assert_eq!(word("fooBar", 3..6), 0..6);
     }
 
     #[test]
     fn expand_to_word_match_surrounded_by_whitespace() {
-        assert_eq!(expand_to_word("  foo  ", 2..5), 2..5);
+        assert_eq!(word("  foo  ", 2..5), 2..5);
     }
 
     #[test]
     fn expand_to_word_match_surrounded_by_punctuation() {
-        assert_eq!(expand_to_word("(foo)", 1..4), 1..4);
+        assert_eq!(word("(foo)", 1..4), 1..4);
     }
 
     #[test]
     fn expand_to_word_does_not_cross_whitespace() {
-        assert_eq!(expand_to_word("foo bar", 0..3), 0..3);
+        assert_eq!(word("foo bar", 0..3), 0..3);
     }
 
     #[test]
     fn expand_to_word_match_is_separator_only() {
-        assert_eq!(expand_to_word("foo_bar", 3..4), 0..7);
+        assert_eq!(word("foo_bar", 3..4), 0..7);
     }
 
     #[test]
     fn expand_to_word_match_contains_path_separator() {
-        assert_eq!(expand_to_word("x_foo::bar_y", 2..10), 0..12);
+        assert_eq!(word("x_foo::bar_y", 2..10), 0..12);
     }
 
     #[test]
     fn expand_to_word_unicode_alphanumeric_neighbour() {
-        assert_eq!(expand_to_word("é_foo", 3..6), 0..6);
+        assert_eq!(word("é_foo", 3..6), 0..6);
     }
 
     #[test]
     fn expand_to_word_empty_content() {
-        assert_eq!(expand_to_word("", 0..0), 0..0);
+        assert_eq!(word("", 0..0), 0..0);
     }
 
     #[test]
@@ -636,47 +730,62 @@ mod tests {
 
     #[test]
     fn captures_no_dollar_borrows() {
-        let caps: Box<[Box<str>]> = vec![Box::from("full")].into();
-        assert!(matches!(
-            expand_captures("no refs", &caps),
-            Cow::Borrowed(_)
-        ));
+        let info = MatchInfo {
+            captures: vec![Box::from("full")].into(),
+            ..make_match(0, 0)
+        };
+        assert!(matches!(expand(&info, "no refs"), Cow::Borrowed(_)));
     }
 
     #[test]
     fn captures_empty_captures_borrows() {
-        assert!(matches!(expand_captures("$1 ref", &[]), Cow::Borrowed(_)));
+        let info = make_match(0, 0);
+        assert!(matches!(expand(&info, "$1 ref"), Cow::Borrowed(_)));
     }
 
     #[test]
     fn captures_expand_group() {
-        let caps: Box<[Box<str>]> =
-            vec![Box::from("foo bar"), Box::from("foo"), Box::from("bar")].into();
-        assert_eq!(expand_captures("$2-$1", &caps).as_ref(), "bar-foo");
+        let info = MatchInfo {
+            captures: vec![Box::from("foo bar"), Box::from("foo"), Box::from("bar")].into(),
+            ..make_match(0, 0)
+        };
+        assert_eq!(expand(&info, "$2-$1").as_ref(), "bar-foo");
     }
 
     #[test]
     fn captures_expand_full_match() {
-        let caps: Box<[Box<str>]> = vec![Box::from("hello")].into();
-        assert_eq!(expand_captures("[$0]", &caps).as_ref(), "[hello]");
+        let info = MatchInfo {
+            captures: vec![Box::from("hello")].into(),
+            ..make_match(0, 0)
+        };
+        assert_eq!(expand(&info, "[$0]").as_ref(), "[hello]");
     }
 
     #[test]
     fn captures_dollar_escape() {
-        let caps: Box<[Box<str>]> = vec![Box::from("x")].into();
-        assert_eq!(expand_captures("$$0", &caps).as_ref(), "$0");
+        let info = MatchInfo {
+            captures: vec![Box::from("x")].into(),
+            ..make_match(0, 0)
+        };
+        assert_eq!(expand(&info, "$$0").as_ref(), "$0");
     }
 
     #[test]
     fn captures_missing_group() {
-        let caps: Box<[Box<str>]> = vec![Box::from("x")].into();
-        assert_eq!(expand_captures("$1$9", &caps).as_ref(), "");
+        let info = MatchInfo {
+            captures: vec![Box::from("x")].into(),
+            ..make_match(0, 0)
+        };
+        assert_eq!(expand(&info, "$1$9").as_ref(), "");
     }
 
     #[test]
     fn captures_trailing_dollar() {
-        let caps: Box<[Box<str>]> = vec![Box::from("x")].into();
-        assert_eq!(expand_captures("end$", &caps).as_ref(), "end$");
+        let info = MatchInfo {
+            captures: vec![Box::from("x")].into(),
+            ..make_match(0, 0)
+        };
+        assert_eq!(expand(&info, "end$").as_ref(), "end$");
     }
 
     #[test]
@@ -688,5 +797,44 @@ mod tests {
         }];
         let result = apply_replacements(content, &matches, "$2 $1", MatchMode::Regex);
         assert_eq!(result, "bar foo");
+    }
+
+    #[test]
+    fn replacement_compute_literal_borrows() {
+        let info = make_match(0, 5);
+        let out = Replacement::new(&info, "hello world", 0..5, "bye", MatchMode::Literal).compute();
+        assert_eq!(out.as_ref(), "bye");
+        assert!(matches!(out, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn replacement_compute_regex_expands_captures() {
+        let info = MatchInfo {
+            captures: vec![Box::from("foo bar"), Box::from("foo"), Box::from("bar")].into(),
+            ..make_match(0, 7)
+        };
+        let out = Replacement::new(&info, "foo bar", 0..7, "$2-$1", MatchMode::Regex).compute();
+        assert_eq!(out.as_ref(), "bar-foo");
+    }
+
+    #[test]
+    fn replacement_compute_case_aware_uses_word_boundary() {
+        // the match "foo" is inside camelCase "fooBar"; CaseAware mode must pick camelCase
+        let info = make_match(0, 3);
+        let out =
+            Replacement::new(&info, "fooBar", 0..3, "new_thing", MatchMode::CaseAware).compute();
+        assert_eq!(out.as_ref(), "newThing");
+    }
+
+    #[test]
+    fn replacement_compute_case_aware_with_captures() {
+        // captures expansion happens before case-awareness; the expanded string is then re-cased
+        let info = MatchInfo {
+            captures: vec![Box::from("hi"), Box::from("hi")].into(),
+            ..make_match(0, 7)
+        };
+        let out =
+            Replacement::new(&info, "FOO_BAR", 0..7, "$1_world", MatchMode::CaseAware).compute();
+        assert_eq!(out.as_ref(), "HI_WORLD");
     }
 }
