@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.5.0] - 2026-05-03
+
+### Added
+
+
+-  more compact preview with line numbers ([#24](https://github.com/beeb/swpui/pull/24)) - ([08cfe7e](https://github.com/beeb/swpui/commit/08cfe7e5cbd9e0197d40c9b7bbe240193a294122))
+
+### Changed
+
+
+-  file hash and move things around ([#21](https://github.com/beeb/swpui/pull/21)) - ([4713b0e](https://github.com/beeb/swpui/commit/4713b0e046945cc4b2a8b086de9726925d9f8521))
+-  utils ([#23](https://github.com/beeb/swpui/pull/23)) - ([3368c76](https://github.com/beeb/swpui/commit/3368c76450c1d7800b3afc89c7fe7633081b0485))
+
+
+
+
+**Full Changelog**: [0.4.0...0.5.0](https://github.com/beeb/swpui/compare/v0.4.0...v0.5.0)
+
+
 ## [0.4.0] - 2026-05-03
 
 ### Added
