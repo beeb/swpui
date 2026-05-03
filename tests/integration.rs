@@ -3,9 +3,10 @@
 use std::{fs, io::Write as _, sync::atomic::AtomicUsize};
 
 use swpui::{
+    hash::FileHash,
     replace::{apply_replacements, effective_replacement, write_file},
     search::{Pattern, find_matches_in_content},
-    types::{FileHash, MatchMode},
+    types::MatchMode,
 };
 
 fn create_test_dir(files: &[(&str, &str)]) -> tempfile::TempDir {

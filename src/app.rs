@@ -32,9 +32,9 @@ use crate::{
         PreviewCommand, PreviewRequest, PreviewResult, PreviewWorker, WantedSet, data::PreviewData,
     },
     replace,
-    search::SearchWorker,
+    search::{self, FileMatches, SearchRequest, SearchResult, SearchWorker},
     spinner::SpinnerState,
-    types::{FileMatches, MatchMode, Pane, SearchRequest, SearchResult, WorkerCommand},
+    types::{MatchMode, Pane},
     ui,
     utils::results_mem_bytes,
 };
@@ -70,7 +70,7 @@ pub struct App {
     generation: u64,
     last_keystroke: Option<Instant>,
     pending_search: bool,
-    cmd_tx: mpsc::Sender<WorkerCommand>,
+    cmd_tx: mpsc::Sender<search::WorkerCommand>,
     result_rx: mpsc::Receiver<SearchResult>,
     cancelled: Arc<AtomicBool>,
     preview_wanted: WantedSet,
@@ -267,11 +267,14 @@ impl App {
         self.selected_match = 0;
         self.preview_line_offset = 0;
         self.preview_scroll.clear();
-        let _ = self.cmd_tx.send(WorkerCommand::Search(SearchRequest {
-            pattern: pattern.to_string(),
-            mode: self.match_mode,
-            generation: self.generation,
-        }));
+        let _ = self.cmd_tx.send(
+            SearchRequest {
+                pattern: pattern.to_string(),
+                mode: self.match_mode,
+                generation: self.generation,
+            }
+            .into(),
+        );
     }
 
     fn dispatch_preview(&mut self) {
@@ -438,7 +441,7 @@ impl App {
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.include_hidden = !self.include_hidden;
-                let _ = self.cmd_tx.send(WorkerCommand::Rebuild {
+                let _ = self.cmd_tx.send(search::WorkerCommand::Rebuild {
                     include_hidden: self.include_hidden,
                 });
                 self.dispatch_search();

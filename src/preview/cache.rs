@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{preview::data::PreviewData, types::FileHash};
+use crate::{hash::FileHash, preview::data::PreviewData};
 
 pub const MIN_ENTRIES: usize = 1;
 pub const MAX_ENTRIES: usize = 16;

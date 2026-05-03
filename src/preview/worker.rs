@@ -6,10 +6,11 @@ use std::{
 };
 
 use crate::{
+    hash::FileHash,
     prelude::OrPanic as _,
     preview::{cache::PreviewCache, data::PreviewData},
     search::{MAX_MATCHES, Pattern, find_matches_in_content},
-    types::{FileHash, MatchInfo, MatchMode},
+    types::{MatchInfo, MatchMode},
 };
 
 /// Number of workers is based on the fact that the wanted set has 3 items at most

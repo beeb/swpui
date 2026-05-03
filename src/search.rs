@@ -17,9 +17,62 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
 use tracing::debug;
 
-use crate::types::{
-    FileHash, FileMatches, MatchInfo, MatchMode, SearchRequest, SearchResult, WorkerCommand,
+use crate::{
+    hash::FileHash,
+    path::ResponsivePath,
+    types::{MatchInfo, MatchMode},
 };
+
+pub struct SearchRequest {
+    pub pattern: String,
+    pub mode: MatchMode,
+    pub generation: u64,
+}
+
+pub enum WorkerCommand {
+    Search(SearchRequest),
+    Rebuild { include_hidden: bool },
+}
+
+impl From<SearchRequest> for WorkerCommand {
+    fn from(value: SearchRequest) -> Self {
+        WorkerCommand::Search(value)
+    }
+}
+
+pub enum SearchResult {
+    FileListReady {
+        count: usize,
+        truncated: bool,
+    },
+    FileMatches {
+        generation: u64,
+        file_matches: FileMatches,
+    },
+    Complete {
+        generation: u64,
+        truncated: bool,
+    },
+    Error {
+        generation: u64,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct FileMatches {
+    pub path: PathBuf,
+    pub responsive_path: Option<ResponsivePath>,
+    pub matches: Vec<MatchInfo>,
+    pub hash: FileHash,
+}
+
+impl FileMatches {
+    #[must_use]
+    pub fn active_match_count(&self) -> usize {
+        self.matches.iter().filter(|m| !m.skip).count()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Pattern<'a> {
@@ -326,6 +379,31 @@ mod tests {
             f.write_all(content.as_bytes()).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn file_matches_match_count() {
+        let fm = FileMatches {
+            path: PathBuf::from("test.rs"),
+            responsive_path: None,
+            matches: vec![
+                MatchInfo {
+                    byte_offset_start: 0,
+                    byte_offset_end: 3,
+                    skip: false,
+                    captures: Box::new([]),
+                },
+                MatchInfo {
+                    byte_offset_start: 10,
+                    byte_offset_end: 13,
+                    skip: true,
+                    captures: Box::new([]),
+                },
+            ],
+            hash: FileHash::default(),
+        };
+        assert_eq!(fm.matches.len(), 2);
+        assert_eq!(fm.active_match_count(), 1);
     }
 
     #[test]

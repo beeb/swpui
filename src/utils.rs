@@ -1,6 +1,6 @@
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr};
 
-use crate::types::{FileMatches, MatchInfo};
+use crate::{search::FileMatches, types::MatchInfo};
 
 pub struct TruncatedLine<'a> {
     pub before: &'a str,
@@ -193,10 +193,6 @@ fn file_matches_mem_bytes(fm: &FileMatches) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use crate::types::FileHash;
-
     use super::*;
 
     #[test]
@@ -348,28 +344,5 @@ mod tests {
         assert_eq!(result.before, "");
         assert_eq!(result.matched, "CDE");
         assert_eq!(result.after, "");
-    }
-
-    #[test]
-    fn stale_file_detected() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let path = dir.path().join("test.txt");
-        fs::write(&path, "original content").unwrap();
-        let hash = FileHash::new(&path).unwrap();
-
-        // modify the file externally
-        fs::write(&path, "modified content").unwrap();
-
-        assert!(!hash.matches(&path).unwrap());
-    }
-
-    #[test]
-    fn fresh_file_not_stale() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let path = dir.path().join("test.txt");
-        fs::write(&path, "original content").unwrap();
-        let hash = FileHash::new(&path).unwrap();
-
-        assert!(hash.matches(&path).unwrap());
     }
 }
