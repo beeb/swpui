@@ -5,8 +5,9 @@ use std::{
     path::{Component, MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path},
 };
 
-use itertools::{FoldWhile, Itertools as _};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr as _};
+use unicode_width::UnicodeWidthStr as _;
+
+use crate::utils::{trim_end_to_width, trim_start_to_width};
 
 const CACHE_SIZE: usize = 4;
 
@@ -96,7 +97,7 @@ impl ResponsivePath {
             return compact;
         }
 
-        let res = truncate_left(compact, compact_w - width);
+        let res = trim_start_to_width(&compact, width, false).0.to_string();
         self.cache.insert(width, res.clone());
         res
     }
@@ -165,35 +166,9 @@ impl ResponsivePath {
         let budget = width.saturating_sub(overhead);
         let left = budget.div_ceil(2).max(1);
         let right = budget.saturating_sub(left).max(1);
-        let start = stem_chars
-            .iter()
-            .copied()
-            .fold_while(String::new(), |mut acc, c| {
-                let w = c.width().unwrap_or_default();
-                if acc.width() + w > left {
-                    return FoldWhile::Done(acc);
-                }
-                acc.push(c);
-                FoldWhile::Continue(acc)
-            })
-            .into_inner();
-        let mut temp_w = 0;
-        let end = stem_chars
-            .iter()
-            .rev()
-            .take_while(|c| {
-                let w = c.width().unwrap_or_default();
-                if temp_w + w > right {
-                    false
-                } else {
-                    temp_w += w;
-                    true
-                }
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<String>();
+
+        let (start, _) = trim_end_to_width(stem, left, false);
+        let (end, _) = trim_start_to_width(stem, right, false);
         if ext.is_empty() {
             format!("{start}\u{2026}{end}")
         } else {
@@ -241,19 +216,6 @@ impl Cache {
             this.pop_back();
         }
     }
-}
-
-/// Trim characters on the left until it fits
-#[must_use]
-pub fn truncate_left(mut s: String, mut excess_cols: usize) -> String {
-    s.retain(|c| {
-        if excess_cols == 0 {
-            return true;
-        }
-        excess_cols = excess_cols.saturating_sub(c.width().unwrap_or_default());
-        false
-    });
-    s
 }
 
 #[cfg(test)]

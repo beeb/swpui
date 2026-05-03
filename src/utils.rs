@@ -60,8 +60,8 @@ impl<'a> TruncatedLine<'a> {
                 (remaining.div_ceil(2), remaining / 2)
             };
 
-            let (before, left_ellipsis) = Self::trim_start_to_width(before, before_budget);
-            let (after, right_ellipsis) = Self::trim_end_to_width(after, after_budget);
+            let (before, left_ellipsis) = trim_start_to_width(before, before_budget, true);
+            let (after, right_ellipsis) = trim_end_to_width(after, after_budget, true);
 
             return TruncatedLine {
                 before,
@@ -82,15 +82,19 @@ impl<'a> TruncatedLine<'a> {
             if repl_w <= avail {
                 // replacement fits, give remaining to match (from the right end)
                 let match_avail = avail - repl_w;
-                (Self::slice_end(matched, match_avail), Some(repl), false)
+                (
+                    trim_start_to_width(matched, match_avail, false).0,
+                    Some(repl),
+                    false,
+                )
             } else {
                 // replacement overflows: truncate from the right, no room for match
                 let repl_avail = avail.saturating_sub(1); // reserve 1 col for right ellipsis
-                ("", Some(Self::slice_start(repl, repl_avail)), true)
+                ("", Some(trim_end_to_width(repl, repl_avail, false).0), true)
             }
         } else {
             // truncate match from the right end (no replacement)
-            (Self::slice_end(matched, avail), None, false)
+            (trim_start_to_width(matched, avail, false).0, None, false)
         };
 
         TruncatedLine {
@@ -102,64 +106,6 @@ impl<'a> TruncatedLine<'a> {
             right_ellipsis,
         }
     }
-
-    /// Trim a string from the left to fit within `max_cols` display columns.
-    /// If trimmed, reserves 1 column for an ellipsis character.
-    /// Returns `(visible_slice, was_trimmed)`.
-    fn trim_start_to_width(s: &str, max_cols: usize) -> (&str, bool) {
-        let w = s.width();
-        if w <= max_cols {
-            return (s, false);
-        }
-        let target = max_cols.saturating_sub(1); // reserve 1 col for ellipsis
-        let mut cols = 0;
-        let mut byte_start = s.len();
-        for (idx, ch) in s.char_indices().rev() {
-            let cw = ch.width().unwrap_or(0);
-            if cols + cw > target {
-                break;
-            }
-            cols += cw;
-            byte_start = idx;
-        }
-        (&s[byte_start..], true)
-    }
-
-    /// Trim a string from the right to fit within `max_cols` display columns.
-    /// If trimmed, reserves 1 column for an ellipsis character.
-    /// Returns `(visible_slice, was_trimmed)`.
-    fn trim_end_to_width(s: &str, max_cols: usize) -> (&str, bool) {
-        let w = s.width();
-        if w <= max_cols {
-            return (s, false);
-        }
-        let target = max_cols.saturating_sub(1); // reserve 1 col for ellipsis
-        let (char_count, _) = chars_within_width(s.chars(), target);
-        let byte_end = s.char_indices().nth(char_count).map_or(s.len(), |(i, _)| i);
-        (&s[..byte_end], true)
-    }
-
-    /// Take up to `max_cols` display columns from the start of a string (no ellipsis reservation).
-    fn slice_start(s: &str, max_cols: usize) -> &str {
-        let (char_count, _) = chars_within_width(s.chars(), max_cols);
-        let byte_end = s.char_indices().nth(char_count).map_or(s.len(), |(i, _)| i);
-        &s[..byte_end]
-    }
-
-    /// Take up to `max_cols` display columns from the end of a string (no ellipsis reservation).
-    fn slice_end(s: &str, max_cols: usize) -> &str {
-        let mut cols = 0;
-        let mut byte_start = s.len();
-        for (idx, ch) in s.char_indices().rev() {
-            let cw = ch.width().unwrap_or(0);
-            if cols + cw > max_cols {
-                break;
-            }
-            cols += cw;
-            byte_start = idx;
-        }
-        &s[byte_start..]
-    }
 }
 
 /// Logging helper to calculate the size in memory the search results.
@@ -167,19 +113,54 @@ pub fn results_mem_bytes(results: &[FileMatches]) -> usize {
     size_of_val(results) + results.iter().map(file_matches_mem_bytes).sum::<usize>()
 }
 
-fn chars_within_width(chars: impl Iterator<Item = char>, max_cols: usize) -> (usize, usize) {
-    let mut total = 0;
-    let count = chars
-        .take_while(|c| {
-            let w = c.width().unwrap_or_default();
-            if total + w > max_cols {
-                return false;
-            }
-            total += w;
-            true
-        })
-        .count();
-    (count, total)
+/// Trim a string from the left to fit within `max_cols` display columns.
+///
+/// If `ellipsis` is true, reserves 1 column for an ellipsis character.
+///
+/// Returns `(visible_slice, was_trimmed)`.
+#[must_use]
+pub fn trim_start_to_width(s: &str, max_cols: usize, ellipsis: bool) -> (&str, bool) {
+    let w = s.width();
+    if w <= max_cols {
+        return (s, false);
+    }
+    let target = max_cols.saturating_sub(usize::from(ellipsis)); // reserve 1 col for ellipsis if requested
+    let mut cols = 0;
+    let mut byte_start = s.len();
+    for (idx, ch) in s.char_indices().rev() {
+        let cw = ch.width().unwrap_or(0);
+        if cols + cw > target {
+            break;
+        }
+        cols += cw;
+        byte_start = idx;
+    }
+    (&s[byte_start..], true)
+}
+
+/// Trim a string from the right to fit within `max_cols` display columns.
+///
+/// If `ellipsis` is true, reserves 1 column for an ellipsis character.
+///
+/// Returns `(visible_slice, was_trimmed)`.
+#[must_use]
+pub fn trim_end_to_width(s: &str, max_cols: usize, ellipsis: bool) -> (&str, bool) {
+    let w = s.width();
+    if w <= max_cols {
+        return (s, false);
+    }
+    let target = max_cols.saturating_sub(usize::from(ellipsis)); // reserve 1 col for ellipsis if requested
+    let mut cols = 0;
+    let mut byte_end = 0;
+    for (idx, ch) in s.char_indices() {
+        let cw = ch.width().unwrap_or(0);
+        if cols + cw > target {
+            break;
+        }
+        cols += cw;
+        byte_end = idx + ch.len_utf8();
+    }
+    (&s[..byte_end], true)
 }
 
 fn file_matches_mem_bytes(fm: &FileMatches) -> usize {

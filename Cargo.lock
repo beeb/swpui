@@ -1762,7 +1762,6 @@ dependencies = [
  "convert_case 0.11.0",
  "dunce",
  "ignore",
- "itertools",
  "memchr",
  "rat-widget",
  "ratatui",

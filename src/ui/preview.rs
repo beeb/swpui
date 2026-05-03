@@ -14,11 +14,10 @@ use unicode_width::UnicodeWidthStr as _;
 use super::focused_border_style;
 use crate::{
     app::App,
-    path::truncate_left,
     preview::data::{CONTEXT_LINES, ContextLine, PreviewData, PreviewMatch, PreviewMatchKind},
     replace::{Replacement, effective_replacement},
     types::{MatchInfo, MatchMode, Pane},
-    utils::TruncatedLine,
+    utils::{TruncatedLine, trim_start_to_width},
 };
 
 pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
@@ -145,9 +144,8 @@ fn format_title(app: &App, area_width: u16) -> String {
                 full
             } else {
                 // truncate path from the left with ellipsis
-                let excess = prefix.len() + 1 + path_str.width() - title_max; // 1 for ellipsis
-                let path_str = truncate_left(path_str, excess);
-                format!("{prefix}\u{2026}{}", &path_str)
+                let path_str = trim_start_to_width(&path_str, title_max - prefix.width(), true).0;
+                format!("{prefix}\u{2026}{path_str}")
             }
         },
     )
