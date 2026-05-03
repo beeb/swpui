@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.4.0] - 2026-05-03
+
+### Added
+
+
+-  add cache to ResponsivePath ([#18](https://github.com/beeb/swpui/pull/18)) - ([65ed13e](https://github.com/beeb/swpui/commit/65ed13e24818e7ef192e93a8b4e87e90ab184897))
+
+### Changed
+
+- **(preview)** worker and cache ([#14](https://github.com/beeb/swpui/pull/14)) - ([6f99a03](https://github.com/beeb/swpui/commit/6f99a03b2b293f132dfa6555a7b91fb26db23707))
+
+
+-  utils ([#16](https://github.com/beeb/swpui/pull/16)) - ([736a8d1](https://github.com/beeb/swpui/commit/736a8d1cf895aa59effd12a540cc3af45d971a5f))
+-  path printing ([#17](https://github.com/beeb/swpui/pull/17)) - ([fcdb227](https://github.com/beeb/swpui/commit/fcdb2271cd7402cd5ab9fe459d46934cc0b406d6))
+
+### Documentation
+
+
+-  readme ([#20](https://github.com/beeb/swpui/pull/20)) - ([2c02ad3](https://github.com/beeb/swpui/commit/2c02ad325097c5b5783cc62cc47e907aa5de24a2))
+
+### Fixed
+
+
+-  preview case detection ([#19](https://github.com/beeb/swpui/pull/19)) - ([932327c](https://github.com/beeb/swpui/commit/932327c31852415864b8637081d179614f81cb58))
+
+
+
+
+**Full Changelog**: [0.3.0...0.4.0](https://github.com/beeb/swpui/compare/v0.3.0...v0.4.0)
+
+
 ## [0.3.0] - 2026-04-30
 
 ### Added
