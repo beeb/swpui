@@ -5,8 +5,7 @@ use std::{fs, io::Write as _, sync::atomic::AtomicUsize};
 use swpui::{
     replace::{apply_replacements, effective_replacement, write_file},
     search::{Pattern, find_matches_in_content},
-    types::MatchMode,
-    utils::{hash_file, is_file_stale},
+    types::{FileHash, MatchMode},
 };
 
 fn create_test_dir(files: &[(&str, &str)]) -> tempfile::TempDir {
@@ -48,12 +47,12 @@ fn full_search_and_replace_workflow() {
 fn stale_file_prevents_write() {
     let dir = create_test_dir(&[("test.txt", "original content\n")]);
     let path = dir.path().join("test.txt");
-    let hash = hash_file(&path).unwrap();
+    let hash = FileHash::new(&path).unwrap();
 
     // Modify externally
     fs::write(&path, "someone else changed this\n").unwrap();
 
-    assert!(is_file_stale(&path, hash).unwrap());
+    assert!(!hash.matches(&path).unwrap());
 }
 
 #[test]

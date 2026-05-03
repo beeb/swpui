@@ -36,7 +36,7 @@ use crate::{
     spinner::SpinnerState,
     types::{FileMatches, MatchMode, Pane, SearchRequest, SearchResult, WorkerCommand},
     ui,
-    utils::{self, results_mem_bytes},
+    utils::results_mem_bytes,
 };
 
 const DEBOUNCE: Duration = Duration::from_millis(100);
@@ -316,7 +316,7 @@ impl App {
                 .send(PreviewCommand::Request(PreviewRequest {
                     path: slot.clone(),
                     byte_ranges,
-                    content_hash: fm.content_hash,
+                    hash: fm.hash,
                     pattern: pattern.clone(),
                     mode,
                     generation: self.preview_generation,
@@ -342,7 +342,7 @@ impl App {
                 PreviewResult::Updated {
                     path,
                     matches,
-                    content_hash,
+                    hash: content_hash,
                     data,
                     ..
                 } => {
@@ -352,7 +352,7 @@ impl App {
                         continue;
                     };
                     fm.matches = matches;
-                    fm.content_hash = content_hash;
+                    fm.hash = content_hash;
                     if Some(&path) == active.as_ref() {
                         self.selected_match = 0;
                         self.preview_line_offset = 0;
@@ -665,7 +665,7 @@ impl App {
     }
 
     fn apply_to_file(fm: &FileMatches, replacement: &str, mode: MatchMode) -> anyhow::Result<()> {
-        if utils::is_file_stale(&fm.path, fm.content_hash)? {
+        if !fm.hash.matches(&fm.path)? {
             anyhow::bail!("file modified externally, skipping");
         }
         let content = fs::read_to_string(&fm.path)?;

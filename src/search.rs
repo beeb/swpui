@@ -17,9 +17,8 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
 use tracing::debug;
 
-use crate::{
-    types::{FileMatches, MatchInfo, MatchMode, SearchRequest, SearchResult, WorkerCommand},
-    utils::hash_content,
+use crate::types::{
+    FileHash, FileMatches, MatchInfo, MatchMode, SearchRequest, SearchResult, WorkerCommand,
 };
 
 #[derive(Clone, Debug)]
@@ -202,14 +201,14 @@ impl SearchWorker {
                 };
 
                 if !matches.is_empty() {
-                    let content_hash = hash_content(&mut content.as_bytes());
+                    let content_hash = FileHash::from_bytes(content.as_bytes());
                     let _ = result_tx.send(SearchResult::FileMatches {
                         generation: request.generation,
                         file_matches: FileMatches {
                             path: path.clone(),
                             responsive_path: None,
                             matches,
-                            content_hash,
+                            hash: content_hash,
                         },
                     });
                 }

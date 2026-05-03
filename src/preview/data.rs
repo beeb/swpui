@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn build_preview_context_before_and_after() {
         let content = "a\nb\nc\nmatch\nd\ne\nf\n";
-        let pos = content.find("match").unwrap_or_else(|| unreachable!());
+        let pos = content.find("match").unwrap();
         let data = PreviewData::new(content, &[(pos, pos + 5)]);
         let m = &data.matches[0];
         assert_eq!(m.context_before.len(), CONTEXT_LINES);
@@ -284,7 +284,7 @@ mod tests {
         let prefix = "a".repeat(200);
         let suffix = "b".repeat(200);
         let content = format!("{prefix}NEEDLE{suffix}\n");
-        let pos = content.find("NEEDLE").unwrap_or_else(|| unreachable!());
+        let pos = content.find("NEEDLE").unwrap();
         let data = PreviewData::new(&content, &[(pos, pos + 6)]);
         let m = &data.matches[0];
         let PreviewMatchKind::SingleLine { line_content, .. } = &m.kind else {
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn build_preview_strips_crlf_line_endings() {
         let content = "a\r\nb\r\nc\r\nmatch\r\nd\r\ne\r\n";
-        let pos = content.find("match").unwrap_or_else(|| unreachable!());
+        let pos = content.find("match").unwrap();
         let data = PreviewData::new(content, &[(pos, pos + 5)]);
         let m = &data.matches[0];
 

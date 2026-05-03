@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::preview::data::PreviewData;
+use crate::{preview::data::PreviewData, types::FileHash};
 
 pub const MIN_ENTRIES: usize = 1;
 pub const MAX_ENTRIES: usize = 16;
@@ -18,7 +18,7 @@ pub struct PreviewCache {
 
 pub struct Entry {
     pub path: PathBuf,
-    pub content_hash: [u8; 32],
+    pub hash: FileHash,
     pub data: Arc<PreviewData>,
 }
 
@@ -28,37 +28,29 @@ impl PreviewCache {
         Self::default()
     }
 
-    pub fn get(
-        &mut self,
-        path: impl AsRef<Path>,
-        content_hash: &[u8; 32],
-    ) -> Option<Arc<PreviewData>> {
+    pub fn get(&mut self, path: impl AsRef<Path>, hash: &FileHash) -> Option<Arc<PreviewData>> {
         let path = path.as_ref();
         let pos = self
             .entries
             .iter()
-            .position(|e| e.path == path && &e.content_hash == content_hash)?;
+            .position(|e| e.path == path && &e.hash == hash)?;
         let entry = self.entries.remove(pos)?;
         let data = Arc::clone(&entry.data);
         self.entries.push_front(entry);
         Some(data)
     }
 
-    pub fn insert(&mut self, path: PathBuf, content_hash: [u8; 32], data: Arc<PreviewData>) {
+    pub fn insert(&mut self, path: PathBuf, hash: FileHash, data: Arc<PreviewData>) {
         if let Some(pos) = self
             .entries
             .iter()
-            .position(|e| e.path == path && e.content_hash == content_hash)
+            .position(|e| e.path == path && e.hash == hash)
             && let Some(old) = self.entries.remove(pos)
         {
             self.total_bytes = self.total_bytes.saturating_sub(old.data.size);
         }
         self.total_bytes += data.size;
-        self.entries.push_front(Entry {
-            path,
-            content_hash,
-            data,
-        });
+        self.entries.push_front(Entry { path, hash, data });
         self.evict();
     }
 
@@ -112,7 +104,7 @@ mod tests {
     fn insert_and_lookup() {
         let mut cache = PreviewCache::new();
         let path = PathBuf::from("a.txt");
-        let hash = [0u8; 32];
+        let hash = FileHash::default();
         cache.insert(path.clone(), hash, make_data(10));
         assert!(cache.get(&path, &hash).is_some());
     }
@@ -121,16 +113,16 @@ mod tests {
     fn lookup_miss_on_different_hash() {
         let mut cache = PreviewCache::new();
         let path = PathBuf::from("a.txt");
-        cache.insert(path.clone(), [0u8; 32], make_data(10));
-        assert!(cache.get(&path, &[1u8; 32]).is_none());
+        cache.insert(path.clone(), FileHash::default(), make_data(10));
+        assert!(cache.get(&path, &[1u8; 32].into()).is_none());
     }
 
     #[test]
     fn lru_touch_on_hit_moves_to_front() {
         let mut cache = PreviewCache::new();
-        cache.insert(PathBuf::from("a"), [0u8; 32], make_data(10));
-        cache.insert(PathBuf::from("b"), [0u8; 32], make_data(10));
-        cache.get(PathBuf::from("a"), &[0u8; 32]);
+        cache.insert(PathBuf::from("a"), FileHash::default(), make_data(10));
+        cache.insert(PathBuf::from("b"), FileHash::default(), make_data(10));
+        cache.get(PathBuf::from("a"), &FileHash::default());
         let order: Vec<_> = cache.entries.iter().map(|e| e.path.clone()).collect();
         assert_eq!(order, vec![PathBuf::from("a"), PathBuf::from("b")]);
     }
@@ -139,18 +131,38 @@ mod tests {
     fn evicts_oldest_when_max_entries_exceeded() {
         let mut cache = PreviewCache::new();
         for i in 0..(MAX_ENTRIES + 3) {
-            cache.insert(PathBuf::from(format!("{i}")), [0u8; 32], make_data(10));
+            cache.insert(
+                PathBuf::from(format!("{i}")),
+                FileHash::default(),
+                make_data(10),
+            );
         }
         assert_eq!(cache.entries.len(), MAX_ENTRIES);
-        assert!(cache.get(PathBuf::from("0"), &[0u8; 32]).is_none());
+        assert!(
+            cache
+                .get(PathBuf::from("0"), &FileHash::default())
+                .is_none()
+        );
     }
 
     #[test]
     fn evicts_when_byte_cap_exceeded() {
         let mut cache = PreviewCache::new();
-        cache.insert(PathBuf::from("a"), [0u8; 32], make_data(BYTE_CAP / 2));
-        cache.insert(PathBuf::from("b"), [0u8; 32], make_data(BYTE_CAP / 2));
-        cache.insert(PathBuf::from("c"), [0u8; 32], make_data(BYTE_CAP / 2));
+        cache.insert(
+            PathBuf::from("a"),
+            FileHash::default(),
+            make_data(BYTE_CAP / 2),
+        );
+        cache.insert(
+            PathBuf::from("b"),
+            FileHash::default(),
+            make_data(BYTE_CAP / 2),
+        );
+        cache.insert(
+            PathBuf::from("c"),
+            FileHash::default(),
+            make_data(BYTE_CAP / 2),
+        );
         assert!(cache.entries.len() <= MAX_ENTRIES);
         assert!(cache.total_bytes <= BYTE_CAP);
     }
@@ -158,28 +170,44 @@ mod tests {
     #[test]
     fn keeps_single_oversized_entry() {
         let mut cache = PreviewCache::new();
-        cache.insert(PathBuf::from("big"), [0u8; 32], make_data(BYTE_CAP * 2));
+        cache.insert(
+            PathBuf::from("big"),
+            FileHash::default(),
+            make_data(BYTE_CAP * 2),
+        );
         assert_eq!(cache.entries.len(), 1);
-        assert!(cache.get(PathBuf::from("big"), &[0u8; 32]).is_some());
+        assert!(
+            cache
+                .get(PathBuf::from("big"), &FileHash::default())
+                .is_some()
+        );
     }
 
     #[test]
     fn invalidate_removes_entries_for_path() {
         let mut cache = PreviewCache::new();
-        cache.insert(PathBuf::from("a"), [0u8; 32], make_data(10));
-        cache.insert(PathBuf::from("a"), [1u8; 32], make_data(10));
-        cache.insert(PathBuf::from("b"), [0u8; 32], make_data(10));
+        cache.insert(PathBuf::from("a"), FileHash::default(), make_data(10));
+        cache.insert(PathBuf::from("a"), [1u8; 32].into(), make_data(10));
+        cache.insert(PathBuf::from("b"), FileHash::default(), make_data(10));
         cache.invalidate(PathBuf::from("a"));
-        assert!(cache.get(PathBuf::from("a"), &[0u8; 32]).is_none());
-        assert!(cache.get(PathBuf::from("a"), &[1u8; 32]).is_none());
-        assert!(cache.get(PathBuf::from("b"), &[0u8; 32]).is_some());
+        assert!(
+            cache
+                .get(PathBuf::from("a"), &FileHash::default())
+                .is_none()
+        );
+        assert!(cache.get(PathBuf::from("a"), &[1u8; 32].into()).is_none());
+        assert!(
+            cache
+                .get(PathBuf::from("b"), &FileHash::default())
+                .is_some()
+        );
     }
 
     #[test]
     fn clear_removes_all_entries() {
         let mut cache = PreviewCache::new();
-        cache.insert(PathBuf::from("a"), [0u8; 32], make_data(10));
-        cache.insert(PathBuf::from("b"), [0u8; 32], make_data(10));
+        cache.insert(PathBuf::from("a"), FileHash::default(), make_data(10));
+        cache.insert(PathBuf::from("b"), FileHash::default(), make_data(10));
         cache.clear();
         assert_eq!(cache.entries.len(), 0);
         assert_eq!(cache.total_bytes, 0);

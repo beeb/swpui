@@ -1,10 +1,3 @@
-use std::{
-    fs,
-    io::{BufReader, Read},
-    path::Path,
-};
-
-use sha2::{Digest as _, Sha256};
 use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr};
 
 use crate::types::{FileMatches, MatchInfo};
@@ -169,29 +162,6 @@ impl<'a> TruncatedLine<'a> {
     }
 }
 
-/// Hash the contents of a Reader with SHA256
-pub fn hash_content<R: Read>(content: &mut R) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    let mut buf = [0; 1024];
-    while let Ok(size) = content.read(&mut buf) {
-        if size == 0 {
-            break;
-        }
-        hasher.update(&buf[0..size]);
-    }
-    hasher.finalize().into()
-}
-
-pub fn hash_file(path: impl AsRef<Path>) -> anyhow::Result<[u8; 32]> {
-    let file = fs::File::open(path)?;
-    let mut reader = BufReader::new(file);
-    Ok(hash_content(&mut reader))
-}
-
-pub fn is_file_stale(path: impl AsRef<Path>, original_hash: [u8; 32]) -> anyhow::Result<bool> {
-    Ok(hash_file(path)? != original_hash)
-}
-
 /// Logging helper to calculate the size in memory the search results.
 pub fn results_mem_bytes(results: &[FileMatches]) -> usize {
     size_of_val(results) + results.iter().map(file_matches_mem_bytes).sum::<usize>()
@@ -223,6 +193,10 @@ fn file_matches_mem_bytes(fm: &FileMatches) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use crate::types::FileHash;
+
     use super::*;
 
     #[test]
@@ -381,12 +355,12 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("test.txt");
         fs::write(&path, "original content").unwrap();
-        let hash = hash_file(&path).unwrap();
+        let hash = FileHash::new(&path).unwrap();
 
         // modify the file externally
         fs::write(&path, "modified content").unwrap();
 
-        assert!(is_file_stale(&path, hash).unwrap());
+        assert!(!hash.matches(&path).unwrap());
     }
 
     #[test]
@@ -394,8 +368,8 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("test.txt");
         fs::write(&path, "original content").unwrap();
-        let hash = hash_file(&path).unwrap();
+        let hash = FileHash::new(&path).unwrap();
 
-        assert!(!is_file_stale(&path, hash).unwrap());
+        assert!(hash.matches(&path).unwrap());
     }
 }

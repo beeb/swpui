@@ -1,4 +1,10 @@
-use std::path::PathBuf;
+use std::{
+    fs,
+    io::{BufReader, Read},
+    path::{Path, PathBuf},
+};
+
+use sha2::{Digest as _, Sha256};
 
 use crate::path::ResponsivePath;
 
@@ -51,7 +57,7 @@ pub struct FileMatches {
     pub path: PathBuf,
     pub responsive_path: Option<ResponsivePath>,
     pub matches: Vec<MatchInfo>,
-    pub content_hash: [u8; 32],
+    pub hash: FileHash,
 }
 
 impl FileMatches {
@@ -127,6 +133,49 @@ impl Pane {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct FileHash([u8; 32]);
+
+impl From<[u8; 32]> for FileHash {
+    fn from(value: [u8; 32]) -> Self {
+        Self(value)
+    }
+}
+
+impl FileHash {
+    /// Hash the contents of a file.
+    pub fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let file = fs::File::open(path)?;
+        let mut reader = BufReader::new(file);
+        Ok(Self::digest(&mut reader))
+    }
+
+    /// Hash the bytes.
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let hash: [u8; 32] = Sha256::digest(bytes).into();
+        Self(hash)
+    }
+
+    /// Hash the bytes produced by a reader.
+    pub fn digest<R: Read>(content: &mut R) -> Self {
+        let mut hasher = Sha256::new();
+        let mut buf = [0; 1024];
+        while let Ok(size) = content.read(&mut buf) {
+            if size == 0 {
+                break;
+            }
+            hasher.update(&buf[0..size]);
+        }
+        Self(hasher.finalize().into())
+    }
+
+    /// Check whether the hash matches the current contents of a file.
+    pub fn matches(&self, path: impl AsRef<Path>) -> anyhow::Result<bool> {
+        Ok(&Self::new(path)? == self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,7 +212,7 @@ mod tests {
                     captures: Box::new([]),
                 },
             ],
-            content_hash: [0; 32],
+            hash: FileHash::default(),
         };
         assert_eq!(fm.matches.len(), 2);
         assert_eq!(fm.active_match_count(), 1);

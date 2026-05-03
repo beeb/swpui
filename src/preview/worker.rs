@@ -5,13 +5,11 @@ use std::{
     sync::{Arc, Mutex, RwLock, atomic::AtomicUsize, mpsc},
 };
 
-use sha2::{Digest as _, Sha256};
-
 use crate::{
     prelude::OrPanic as _,
     preview::{cache::PreviewCache, data::PreviewData},
     search::{MAX_MATCHES, Pattern, find_matches_in_content},
-    types::{MatchInfo, MatchMode},
+    types::{FileHash, MatchInfo, MatchMode},
 };
 
 /// Number of workers is based on the fact that the wanted set has 3 items at most
@@ -26,7 +24,7 @@ pub type WantedSet = Arc<RwLock<[Option<PathBuf>; NUM_WORKERS]>>;
 pub struct PreviewRequest {
     pub path: PathBuf,
     pub byte_ranges: Box<[(usize, usize)]>,
-    pub content_hash: [u8; 32],
+    pub hash: FileHash,
     pub pattern: String,
     pub mode: MatchMode,
     pub generation: u64,
@@ -53,7 +51,7 @@ pub enum PreviewResult {
         path: PathBuf,
         generation: u64,
         matches: Vec<MatchInfo>,
-        content_hash: [u8; 32],
+        hash: FileHash,
         data: Arc<PreviewData>,
     },
 
@@ -180,7 +178,7 @@ fn handle_request(
         return;
     }
 
-    if content_hash == req.content_hash {
+    if content_hash == req.hash {
         // file hasn't changed since the search ran, construct preview data
         let data = Arc::new(PreviewData::new(&content, &req.byte_ranges));
         {
@@ -238,7 +236,7 @@ fn handle_request(
             path: req.path,
             generation: req.generation,
             matches: new_matches,
-            content_hash,
+            hash: content_hash,
             data,
         });
     }
@@ -248,7 +246,7 @@ fn handle_request(
 fn read_file_with_cancel(
     path: &Path,
     wanted: &WantedSet,
-) -> io::Result<Option<(String, [u8; 32])>> {
+) -> io::Result<Option<(String, FileHash)>> {
     let mut file = fs::File::open(path)?;
     let mut bytes: Vec<u8> = Vec::new();
     loop {
@@ -260,7 +258,7 @@ fn read_file_with_cancel(
             break;
         }
     }
-    let hash: [u8; 32] = Sha256::digest(&bytes).into();
+    let hash = FileHash::from_bytes(&bytes);
     let content =
         String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     Ok(Some((content, hash)))
@@ -279,7 +277,6 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::utils::hash_file;
 
     fn setup() -> (
         mpsc::Sender<PreviewCommand>,
@@ -297,17 +294,16 @@ mod tests {
 
     fn write_file(dir: &TempDir, name: &str, content: &str) -> PathBuf {
         let path = dir.path().join(name);
-        let mut f = fs::File::create(&path).unwrap_or_else(|_| unreachable!());
-        f.write_all(content.as_bytes())
-            .unwrap_or_else(|_| unreachable!());
+        let mut f = fs::File::create(&path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
         path
     }
 
     #[test]
     fn ready_when_hash_matches() {
-        let dir = TempDir::new().unwrap_or_else(|_| unreachable!());
+        let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "a.txt", "hello world\n");
-        let hash = hash_file(&path).unwrap_or_else(|_| unreachable!());
+        let hash = FileHash::new(&path).unwrap();
 
         let (cmd_tx, result_rx, wanted, _handle) = setup();
         if let Ok(mut slots) = wanted.write() {
@@ -318,16 +314,14 @@ mod tests {
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
                 byte_ranges: vec![(0, 5)].into(),
-                content_hash: hash,
+                hash,
                 pattern: "hello".to_string(),
                 mode: MatchMode::Literal,
                 generation: 1,
             }))
-            .unwrap_or_else(|_| unreachable!());
+            .unwrap();
 
-        let result = result_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap_or_else(|_| unreachable!());
+        let result = result_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         let PreviewResult::Ready {
             path: p,
             generation,
@@ -343,9 +337,9 @@ mod tests {
 
     #[test]
     fn drops_request_when_path_not_wanted() {
-        let dir = TempDir::new().unwrap_or_else(|_| unreachable!());
+        let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "a.txt", "hello\n");
-        let hash = hash_file(&path).unwrap_or_else(|_| unreachable!());
+        let hash = FileHash::new(&path).unwrap();
 
         let (cmd_tx, result_rx, _wanted, _handle) = setup();
 
@@ -353,12 +347,12 @@ mod tests {
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
                 byte_ranges: vec![(0, 5)].into(),
-                content_hash: hash,
+                hash,
                 pattern: "hello".to_string(),
                 mode: MatchMode::Literal,
                 generation: 1,
             }))
-            .unwrap_or_else(|_| unreachable!());
+            .unwrap();
 
         let result = result_rx.recv_timeout(Duration::from_millis(200));
         assert!(result.is_err(), "expected no result, got {result:?}");
@@ -366,9 +360,9 @@ mod tests {
 
     #[test]
     fn updated_when_hash_mismatches_and_matches_found() {
-        let dir = TempDir::new().unwrap_or_else(|_| unreachable!());
+        let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "a.txt", "foo bar foo\n");
-        let stale_hash = [0xABu8; 32];
+        let stale_hash = [0xABu8; 32].into();
 
         let (cmd_tx, result_rx, wanted, _handle) = setup();
         if let Ok(mut slots) = wanted.write() {
@@ -379,19 +373,17 @@ mod tests {
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
                 byte_ranges: vec![(0, 3)].into(),
-                content_hash: stale_hash,
+                hash: stale_hash,
                 pattern: "foo".to_string(),
                 mode: MatchMode::Literal,
                 generation: 1,
             }))
-            .unwrap_or_else(|_| unreachable!());
+            .unwrap();
 
-        let result = result_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap_or_else(|_| unreachable!());
+        let result = result_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         let PreviewResult::Updated {
             matches,
-            content_hash,
+            hash: content_hash,
             data,
             ..
         } = result
@@ -405,9 +397,9 @@ mod tests {
 
     #[test]
     fn removed_when_research_yields_zero_matches() {
-        let dir = TempDir::new().unwrap_or_else(|_| unreachable!());
+        let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "a.txt", "no matches here\n");
-        let stale_hash = [0xABu8; 32];
+        let stale_hash = [0xABu8; 32].into();
 
         let (cmd_tx, result_rx, wanted, _handle) = setup();
         if let Ok(mut slots) = wanted.write() {
@@ -418,16 +410,14 @@ mod tests {
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
                 byte_ranges: vec![].into(),
-                content_hash: stale_hash,
+                hash: stale_hash,
                 pattern: "needle".to_string(),
                 mode: MatchMode::Literal,
                 generation: 1,
             }))
-            .unwrap_or_else(|_| unreachable!());
+            .unwrap();
 
-        let result = result_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap_or_else(|_| unreachable!());
+        let result = result_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(matches!(result, PreviewResult::Removed { .. }));
     }
 
@@ -442,15 +432,13 @@ mod tests {
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
                 byte_ranges: vec![(0, 5)].into(),
-                content_hash: [0u8; 32],
+                hash: FileHash::default(),
                 pattern: "x".to_string(),
                 mode: MatchMode::Literal,
                 generation: 1,
             }))
-            .unwrap_or_else(|_| unreachable!());
-        let result = result_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap_or_else(|_| unreachable!());
+            .unwrap();
+        let result = result_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(matches!(result, PreviewResult::Error { .. }));
     }
 
@@ -459,9 +447,9 @@ mod tests {
         // reproduce the bug: file previewed (cache populated with H1), then modified
         // externally (now H2), then previewed again with req.content_hash=H1
         // must return Updated, not the stale cached Ready
-        let dir = TempDir::new().unwrap_or_else(|_| unreachable!());
+        let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "a.txt", "foo\n");
-        let original_hash = hash_file(&path).unwrap_or_else(|_| unreachable!());
+        let original_hash = FileHash::new(&path).unwrap();
 
         let (cmd_tx, result_rx, wanted, _handle) = setup();
         if let Ok(mut slots) = wanted.write() {
@@ -473,15 +461,13 @@ mod tests {
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
                 byte_ranges: vec![(0, 3)].into(),
-                content_hash: original_hash,
+                hash: original_hash,
                 pattern: "foo".to_string(),
                 mode: MatchMode::Literal,
                 generation: 1,
             }))
-            .unwrap_or_else(|_| unreachable!());
-        let r1 = result_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap_or_else(|_| unreachable!());
+            .unwrap();
+        let r1 = result_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(
             matches!(r1, PreviewResult::Ready { .. }),
             "expected Ready, got {r1:?}"
@@ -495,15 +481,13 @@ mod tests {
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
                 byte_ranges: vec![(0, 3)].into(),
-                content_hash: original_hash,
+                hash: original_hash,
                 pattern: "foo".to_string(),
                 mode: MatchMode::Literal,
                 generation: 2,
             }))
-            .unwrap_or_else(|_| unreachable!());
-        let r2 = result_rx
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap_or_else(|_| unreachable!());
+            .unwrap();
+        let r2 = result_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(
             matches!(r2, PreviewResult::Updated { .. }),
             "expected Updated (file changed externally), got {r2:?}"
