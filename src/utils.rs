@@ -53,10 +53,7 @@ impl<'a> TruncatedLine<'a> {
             let remaining = budget - center_w;
 
             // if only one side overflows, give the other its full width
-            let (before_budget, after_budget) = if before_w + after_w <= remaining {
-                // both fit (shouldn't reach here due to step 1, but handle gracefully)
-                (before_w, after_w)
-            } else if before_w <= remaining && after_w <= remaining {
+            let (before_budget, after_budget) = if before_w <= remaining && after_w <= remaining {
                 // both fit individually but not together: split equally
                 (remaining.div_ceil(2), remaining / 2)
             } else if before_w <= remaining {
