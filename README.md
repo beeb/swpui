@@ -34,6 +34,18 @@ cargo install swpui
 cargo binstall swpui
 ```
 
+#### Via Nix flake
+
+```bash
+nix profile install github:beeb/swpui
+```
+
+Or run without installing:
+
+```bash
+nix run github:beeb/swpui
+```
+
 #### Pre-built binaries and install script
 
 Head over to the [releases page](https://github.com/beeb/swpui/releases)!
