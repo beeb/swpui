@@ -258,7 +258,7 @@ pub fn find_matches_in_content(
         if match_count.load(Ordering::Relaxed) >= max_matches {
             break;
         }
-        matches.push(build_match_info(raw.start, raw.end, raw.captures));
+        matches.push(MatchInfo::new(raw.start, raw.end, raw.captures));
         match_count.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -307,15 +307,6 @@ fn find_byte_ranges(content: &str, pattern: &Pattern) -> Vec<RawMatch> {
                 captures: Box::new([]),
             })
             .collect(),
-    }
-}
-
-fn build_match_info(byte_start: usize, byte_end: usize, captures: Box<[Box<str>]>) -> MatchInfo {
-    MatchInfo {
-        byte_offset_start: byte_start,
-        byte_offset_end: byte_end,
-        skip: false,
-        captures,
     }
 }
 

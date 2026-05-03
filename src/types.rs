@@ -34,6 +34,18 @@ pub struct MatchInfo {
     pub captures: Box<[Box<str>]>,
 }
 
+impl MatchInfo {
+    #[must_use]
+    pub fn new(byte_start: usize, byte_end: usize, captures: Box<[Box<str>]>) -> Self {
+        Self {
+            byte_offset_start: byte_start,
+            byte_offset_end: byte_end,
+            skip: false,
+            captures,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FileMatches {
     pub path: PathBuf,
