@@ -56,7 +56,7 @@ fn focused_border_style(pane: Pane, current: Pane) -> Style {
     if pane == current {
         Style::default().fg(Color::Cyan)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().dim()
     }
 }
 
@@ -157,8 +157,5 @@ fn render_status_bar(app: &App, frame: &mut Frame, status_area: Rect, hints_area
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(version_width)])
             .areas(hints_area);
     frame.render_widget(Line::from(hints.blue()), hints_area);
-    frame.render_widget(
-        Line::from(version.dark_gray()).right_aligned(),
-        version_area,
-    );
+    frame.render_widget(Line::from(version.dim()).right_aligned(), version_area);
 }

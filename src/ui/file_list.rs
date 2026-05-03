@@ -37,7 +37,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         frame.render_widget(
-            Paragraph::new("No matches").style(Style::default().fg(Color::DarkGray)),
+            Paragraph::new("No matches").style(Style::default().dim()),
             inner,
         );
         return;
@@ -71,7 +71,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
             if i < offset || i >= visible_end {
                 let item = ListItem::new("");
                 if dimmed {
-                    item.style(Style::default().fg(Color::DarkGray))
+                    item.style(Style::default().dim())
                 } else {
                     item
                 }
@@ -85,7 +85,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
                     .unwrap_or(fm.path.to_string_lossy().into());
                 let label = format!("{label}{suffix}");
                 if dimmed {
-                    ListItem::new(Line::styled(label, Style::default().fg(Color::DarkGray)))
+                    ListItem::new(Line::styled(label, Style::default().dim()))
                 } else {
                     ListItem::new(label)
                 }

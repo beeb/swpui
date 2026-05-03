@@ -1,3 +1,5 @@
+use crate::types::MatchInfo;
+
 /// Number of context lines kept on either side of a match.
 pub const CONTEXT_LINES: usize = 2;
 
@@ -140,6 +142,41 @@ impl PreviewMatch {
             context_after,
             kind,
         }
+    }
+
+    /// Number of preview lines this match produces (context + match lines).
+    #[must_use]
+    pub fn line_count(&self, info: &MatchInfo, replacement: &str) -> usize {
+        let mut n = self.context_before.len();
+        match &self.kind {
+            PreviewMatchKind::SingleLine { .. } => n += 1,
+            PreviewMatchKind::MultiLine { matched_lines, .. } => {
+                n += self.multiline_line_count(info, matched_lines, replacement);
+            }
+        }
+        n + self.context_after.len()
+    }
+
+    /// Number of preview lines a multiline match produces (removed + added/skipped lines).
+    fn multiline_line_count(
+        &self,
+        info: &MatchInfo,
+        matched_lines: &[Box<str>],
+        replacement: &str,
+    ) -> usize {
+        if info.skip {
+            return matched_lines.len();
+        }
+        let mut n = matched_lines.len();
+        let has_prefix = self.match_col_start > 0;
+        let has_suffix = matched_lines
+            .last()
+            .is_some_and(|l| self.match_col_end < l.len());
+        if !replacement.is_empty() || has_prefix || has_suffix {
+            // even an empty replacement still emits one `+` line carrying the prefix and/or suffix
+            n += replacement.split('\n').count();
+        }
+        n
     }
 
     /// The size in bytes of this object in memory
@@ -356,5 +393,100 @@ mod tests {
         let data = PreviewData::new("hello\n", &[]);
         assert_eq!(data.matches.len(), 0);
         assert_eq!(data.size, 0);
+    }
+
+    fn make_info() -> MatchInfo {
+        MatchInfo {
+            byte_offset_start: 0,
+            byte_offset_end: 5,
+            skip: false,
+            captures: Box::new([]),
+        }
+    }
+
+    fn make_preview_single(line: &str, col_start: usize, col_end: usize) -> PreviewMatch {
+        PreviewMatch {
+            match_col_start: col_start,
+            match_col_end: col_end,
+            context_before: Box::new([]),
+            context_after: Box::new([]),
+            kind: PreviewMatchKind::SingleLine {
+                line_number: 1,
+                line_content: Box::from(line),
+            },
+        }
+    }
+
+    fn make_preview_multiline(lines: &[&str], col_start: usize, col_end: usize) -> PreviewMatch {
+        let boxed_lines: Box<[Box<str>]> = lines.iter().map(|s| Box::from(*s)).collect();
+        PreviewMatch {
+            match_col_start: col_start,
+            match_col_end: col_end,
+            context_before: Box::new([]),
+            context_after: Box::new([]),
+            kind: PreviewMatchKind::MultiLine {
+                line_number_start: 1,
+                matched_lines: boxed_lines,
+            },
+        }
+    }
+
+    #[test]
+    fn line_count_single_line_match() {
+        let info = make_info();
+        let preview = make_preview_single("hello world", 0, 5);
+        assert_eq!(preview.line_count(&info, ""), 1);
+    }
+
+    #[test]
+    fn line_count_single_line_with_context() {
+        let info = make_info();
+        let mut preview = make_preview_single("hello world", 0, 5);
+        preview.context_before = vec![
+            ContextLine {
+                line_number: 1,
+                content: Box::from("before"),
+            },
+            ContextLine {
+                line_number: 2,
+                content: Box::from("before2"),
+            },
+        ]
+        .into();
+        preview.context_after = vec![ContextLine {
+            line_number: 4,
+            content: Box::from("after"),
+        }]
+        .into();
+        // context_before(2) + match(1) + context_after(1) = 4
+        assert_eq!(preview.line_count(&info, ""), 4);
+    }
+
+    #[test]
+    fn line_count_multiline_skipped() {
+        let mut info = make_info();
+        info.skip = true;
+        let preview = make_preview_multiline(&["foo", "bar", "baz"], 0, 3);
+        // 3 matched lines
+        assert_eq!(preview.line_count(&info, "repl"), 3);
+    }
+
+    #[test]
+    fn line_count_multiline_with_replacement() {
+        let info = make_info();
+        let preview = make_preview_multiline(&["  foo", "bar"], 2, 3);
+        // 2 removed + 1 replacement (single line, prefix non-empty) = 3
+        assert_eq!(preview.line_count(&info, "baz"), 3);
+        // multi-line replacement: "a\nb\nc" = 3 lines, plus 2 removed = 5
+        assert_eq!(preview.line_count(&info, "a\nb\nc"), 5);
+    }
+
+    #[test]
+    fn line_count_multiline_empty_replacement_no_affixes() {
+        let info = make_info();
+        // match spans entire lines, so prefix and suffix are empty
+        let preview = make_preview_multiline(&["foo", "bar"], 0, 3);
+        // 2 removed, no replacement lines (empty repl + empty prefix + empty suffix)
+        assert_eq!(preview.line_count(&info, ""), 2);
     }
 }
