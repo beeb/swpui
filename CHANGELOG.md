@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.5.1] - 2026-05-05
+
+### Fixed
+
+- **(replace)** casing in middle of word ([#25](https://github.com/beeb/swpui/pull/25)) - ([892051f](https://github.com/beeb/swpui/commit/892051f88ea6ab528f081e591f6616f64cb07fe2))
+
+
+
+
+
+
+**Full Changelog**: [0.5.0...0.5.1](https://github.com/beeb/swpui/compare/v0.5.0...v0.5.1)
+
+
 ## [0.5.0] - 2026-05-03
 
 ### Added
