@@ -108,6 +108,7 @@ impl<'c, 'r> Replacement<'c, 'r> {
         }
 
         let word_range = self.expand_to_word();
+        let expanded_start = word_range.start < self.match_range.start;
         let match_word = &self.content[word_range];
         if match_word.is_empty() {
             return Cow::Borrowed(replacement);
@@ -129,10 +130,18 @@ impl<'c, 'r> Replacement<'c, 'r> {
             return Cow::Borrowed(replacement);
         }
 
-        let converted = if let Some(from_case) = repl_case {
-            replacement.from_case(from_case).to_case(matched_case)
+        // when the match sits in the middle or end of a camelCase identifier, the replaced
+        // sub-word must be Pascal-cased so it joins correctly with the surrounding words
+        let target_case = if expanded_start && matched_case == Case::Camel {
+            Case::Pascal
         } else {
-            replacement.to_case(matched_case)
+            matched_case
+        };
+
+        let converted = if let Some(from_case) = repl_case {
+            replacement.from_case(from_case).to_case(target_case)
+        } else {
+            replacement.to_case(target_case)
         };
         if converted == replacement {
             return Cow::Borrowed(replacement);
@@ -656,6 +665,22 @@ mod tests {
         let matches = vec![make_match(4, 7)];
         let result = apply_replacements(content, &matches, "qux_thing", MatchMode::CaseAware);
         assert_eq!(result, "foo-qux-thing-baz");
+    }
+
+    #[test]
+    fn case_aware_substring_in_middle() {
+        let content = "fooBarBaz";
+        let matches = vec![make_match(3, 6)];
+        let result = apply_replacements(content, &matches, "qux", MatchMode::CaseAware);
+        assert_eq!(result, "fooQuxBaz");
+    }
+
+    #[test]
+    fn case_aware_multi_word_replacement_in_middle() {
+        let content = "fooBarBaz";
+        let matches = vec![make_match(3, 6)];
+        let result = apply_replacements(content, &matches, "new_thing", MatchMode::CaseAware);
+        assert_eq!(result, "fooNewThingBaz");
     }
 
     #[test]
