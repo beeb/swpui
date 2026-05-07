@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.6.0] - 2026-05-07
+
+### Added
+
+
+-  add gitignore toggle and settings popup ([#27](https://github.com/beeb/swpui/pull/27)) - ([1c02b4b](https://github.com/beeb/swpui/commit/1c02b4b70b0623f902cf7c01ccda873c1a86e4d6))
+
+### Documentation
+
+
+-  update screenshot ([#29](https://github.com/beeb/swpui/pull/29)) - ([48789b1](https://github.com/beeb/swpui/commit/48789b147c4f8dead230621b55cd62147ee90ca8))
+-  fix screenshot ([#30](https://github.com/beeb/swpui/pull/30)) - ([42dc891](https://github.com/beeb/swpui/commit/42dc891fd3e7276eb33e23093ba6eba69e9b1e51))
+
+
+
+
+**Full Changelog**: [0.5.1...0.6.0](https://github.com/beeb/swpui/compare/v0.5.1...v0.6.0)
+
+
 ## [0.5.1] - 2026-05-05
 
 ### Fixed
