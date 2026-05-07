@@ -62,13 +62,22 @@ $ swp
 
 #### Global
 
-| Key                | Action              |
-| ------------------ | ------------------- |
-| `Tab`              | Next pane           |
-| `Shift+Tab`        | Previous pane       |
-| `Ctrl+r` / `Alt+r` | Cycle match mode    |
-| `Ctrl+d` / `Alt+d` | Toggle hidden files |
-| `Ctrl+c`           | Quit                |
+| Key                | Action            |
+| ------------------ | ----------------- |
+| `Tab`              | Next pane         |
+| `Shift+Tab`        | Previous pane     |
+| `Ctrl+r` / `Alt+r` | Cycle match mode  |
+| `Ctrl+o` / `Alt+o` | Open options menu |
+| `Ctrl+c`           | Quit              |
+
+#### Options Menu
+
+| Key                        | Action                  |
+| -------------------------- | ----------------------- |
+| `r`                        | Cycle match mode        |
+| `h`                        | Toggle hidden files     |
+| `g`                        | Toggle gitignored files |
+| `Esc` / `Ctrl+o` / `Alt+o` | Close options menu      |
 
 #### File List
 
@@ -110,6 +119,7 @@ $ swp
 - [x] Batch actions
 - [x] Capture groups replacement
 - [x] Toggle hidden files
+- [x] Toggle gitignored files
 - [ ] Focus pane with mouse
 - [ ] Glob to include/exclude files
 

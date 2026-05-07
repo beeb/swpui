@@ -8,10 +8,7 @@ use ratatui::{
     widgets::{Block, Clear, Paragraph, StatefulWidget as _},
 };
 
-use crate::{
-    app::App,
-    types::{MatchMode, Pane},
-};
+use crate::{app::App, types::Pane};
 
 mod file_list;
 mod preview;
@@ -20,9 +17,10 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
 
     // main layout: content area + error/status bar
-    let [content_area, status_area, hints_area] = Layout::vertical([
+    let [content_area, status_area, options_area, hints_area] = Layout::vertical([
         Constraint::Fill(1),
         Constraint::Length(app.status_message.is_some().into()),
+        Constraint::Length(1),
         Constraint::Length(1),
     ])
     .areas(area);
@@ -46,9 +44,13 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     file_list::render(app, frame, file_area);
     preview::render(app, frame, right);
     render_status_bar(app, frame, status_area, hints_area);
+    render_options_strip(app, frame, options_area);
 
     if app.confirm_apply_all {
         render_confirm_modal(frame, area);
+    }
+    if app.options_open {
+        render_options_modal(app, frame, area);
     }
 }
 
@@ -64,17 +66,7 @@ fn render_input_area(app: &mut App, frame: &mut Frame, area: Rect) {
     let [search_area, replace_area] =
         Layout::vertical([Constraint::Length(3), Constraint::Length(3)]).areas(area);
 
-    let hidden_label = if app.include_hidden {
-        " [+hidden]"
-    } else {
-        " [-hidden]"
-    };
-    let mode_label = match app.match_mode {
-        MatchMode::CaseAware => format!("Search (case-aware){hidden_label}"),
-        MatchMode::Literal => format!("Search (literal){hidden_label}"),
-        MatchMode::Regex => format!("Search (regex){hidden_label}"),
-        MatchMode::RegexMultiline => format!("Search (regex multiline){hidden_label}"),
-    };
+    let mode_label = format!("Search ({})", app.options.match_mode);
 
     // search input
     app.search_input
@@ -126,11 +118,88 @@ fn render_confirm_modal(frame: &mut Frame, area: Rect) {
         .title("Confirm");
     let inner = block.inner(modal_area);
     frame.render_widget(block, modal_area);
-    frame.render_widget(
-        Paragraph::new("Apply all replacements?\ny / n")
-            .alignment(ratatui::layout::Alignment::Center),
-        inner,
-    );
+    let body = vec![
+        Line::from("Apply all replacements?").centered(),
+        Line::from(Span::styled("y / n", Style::default().fg(Color::Blue))).centered(),
+    ];
+    frame.render_widget(Paragraph::new(body), inner);
+}
+
+fn render_options_modal(app: &App, frame: &mut Frame, area: Rect) {
+    let hidden = if app.options.include_hidden {
+        "included"
+    } else {
+        "excluded"
+    };
+    let gitignored = if app.options.include_gitignored {
+        "included"
+    } else {
+        "excluded"
+    };
+
+    let match_mode = app.options.match_mode.to_string();
+    let rows: [(&str, &str, &str); 3] = [
+        ("r", "Search mode  ", match_mode.as_str()),
+        ("h", "Hidden files ", hidden),
+        ("g", "Gitignored   ", gitignored),
+    ];
+
+    let row_width = rows
+        .iter()
+        .map(|(k, name, val)| k.len() + name.len() + val.len())
+        .max()
+        .unwrap_or(0)
+        + 4;
+    let close_hint = "esc/C-o/A-o: close";
+    let inner_width_usize = row_width.max(close_hint.len());
+    #[expect(clippy::cast_possible_truncation)]
+    let inner_width = inner_width_usize as u16;
+    let width = (inner_width + 4).min(area.width);
+    #[expect(clippy::cast_possible_truncation)]
+    let height = (rows.len() as u16 + 4).min(area.height); // rows + blank + hint + 2 borders
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let modal_area = Rect::new(x, y, width, height);
+
+    frame.render_widget(Clear, modal_area);
+    let block = Block::bordered()
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title("Options");
+    let inner = block.inner(modal_area);
+    frame.render_widget(block, modal_area);
+
+    let mut body: Vec<Line> = rows
+        .iter()
+        .map(|(key, name, val)| {
+            Line::from(vec![
+                Span::styled(format!(" [{key}]"), Style::default().fg(Color::Blue)),
+                Span::raw(format!(" {name} ")),
+                Span::styled(*val, Style::default().fg(Color::Cyan)),
+            ])
+        })
+        .collect();
+    body.push(Line::raw(""));
+    body.push(Line::from(Span::styled(close_hint, Style::default().fg(Color::Blue))).centered());
+    frame.render_widget(Paragraph::new(body), inner);
+}
+
+fn render_options_strip(app: &App, frame: &mut Frame, area: Rect) {
+    let hidden = if app.options.include_hidden {
+        "incl"
+    } else {
+        "excl"
+    };
+    let gitignored = if app.options.include_gitignored {
+        "incl"
+    } else {
+        "excl"
+    };
+    let line = Line::from(vec![Span::styled(
+        format!("hidden: {hidden} | gitignored: {gitignored}"),
+        Style::default().dim(),
+    )]);
+    frame.render_widget(line, area);
 }
 
 fn render_status_bar(app: &App, frame: &mut Frame, status_area: Rect, hints_area: Rect) {
@@ -140,13 +209,13 @@ fn render_status_bar(app: &App, frame: &mut Frame, status_area: Rect, hints_area
     }
     let hints = match app.focused_pane {
         Pane::SearchInput | Pane::ReplaceInput => {
-            "C-r/A-r: mode | C-d/A-d: hidden | esc: file list | tab/S-tab: cycle | q/C-c: quit"
+            "C-r/A-r: mode | C-o/A-o: options | esc: file list | tab/S-tab: cycle | q/C-c: quit"
         }
         Pane::FileList => {
-            "s: skip file | f: apply file | a: apply all | j/k: navigate | l/enter: preview | tab/S-tab: cycle | q/C-c: quit"
+            "s: skip file | f: apply file | a: apply all | j/k: navigate | l/enter: preview | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"
         }
         Pane::Preview => {
-            "space: skip | enter: apply match | s: skip file | f: apply file | j/k: navigate | h/esc: back | tab/S-tab: cycle | q/C-c: quit"
+            "space: skip | enter: apply match | s: skip file | f: apply file | j/k: navigate | h/esc: back | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"
         }
     };
     let version = concat!("v", env!("CARGO_PKG_VERSION"));

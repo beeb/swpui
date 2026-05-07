@@ -34,7 +34,7 @@ use crate::{
     replace,
     search::{self, FileMatches, SearchRequest, SearchResult, SearchWorker},
     spinner::SpinnerState,
-    types::{MatchMode, Pane},
+    types::{MatchMode, Options, Pane},
     ui,
     utils::results_mem_bytes,
 };
@@ -47,7 +47,7 @@ pub struct App {
     pub root: PathBuf,
     pub search_input: TextInputState,
     pub replace_input: TextInputState,
-    pub match_mode: MatchMode,
+    pub options: Options,
     pub results: Vec<FileMatches>,
     pub focused_pane: Pane,
     pub file_list: ListState,
@@ -62,7 +62,7 @@ pub struct App {
     pub truncated: bool,
     pub spinner: SpinnerState,
     pub confirm_apply_all: bool,
-    pub include_hidden: bool,
+    pub options_open: bool,
     pub preview_data: HashMap<PathBuf, Arc<PreviewData>>,
     pub preview_error: HashMap<PathBuf, String>,
     pub preview_loading: bool,
@@ -85,7 +85,14 @@ impl App {
         let (result_tx, result_rx) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
 
-        let worker = SearchWorker::new(root.clone(), cmd_rx, result_tx, Arc::clone(&cancelled))?;
+        let options = Options::default();
+        let worker = SearchWorker::new(
+            root.clone(),
+            cmd_rx,
+            result_tx,
+            Arc::clone(&cancelled),
+            options.into(),
+        )?;
         thread::spawn(move || worker.run());
 
         let (preview_cmd_tx, preview_cmd_rx) = mpsc::channel();
@@ -102,7 +109,7 @@ impl App {
             root,
             search_input: TextInputState::new(),
             replace_input: TextInputState::new(),
-            match_mode: MatchMode::default(),
+            options,
             results: Vec::new(),
             focused_pane: Pane::default(),
             file_list: ListState::default(),
@@ -115,7 +122,7 @@ impl App {
             truncated: false,
             spinner: SpinnerState::default(),
             confirm_apply_all: false,
-            include_hidden: true,
+            options_open: false,
             preview_data: HashMap::new(),
             preview_error: HashMap::new(),
             preview_loading: false,
@@ -235,6 +242,13 @@ impl App {
         self.pending_search = true;
     }
 
+    fn rebuild_file_list(&mut self) {
+        let _ = self
+            .cmd_tx
+            .send(search::WorkerCommand::Rebuild(self.options.into()));
+        self.dispatch_search();
+    }
+
     fn reset_preview_state(&mut self) {
         let _ = self.preview_cmd_tx.send(PreviewCommand::Clear);
         self.preview_data.clear();
@@ -270,7 +284,7 @@ impl App {
         let _ = self.cmd_tx.send(
             SearchRequest {
                 pattern: pattern.to_string(),
-                mode: self.match_mode,
+                mode: self.options.match_mode,
                 generation: self.generation,
             }
             .into(),
@@ -299,7 +313,7 @@ impl App {
         self.preview_error.retain(|p, _| is_wanted(p));
 
         let pattern = self.search_input.text().to_string();
-        let mode = self.match_mode;
+        let mode = self.options.match_mode;
         for slot in wanted.iter().flatten() {
             if self.preview_data.contains_key(slot) {
                 // data is already available
@@ -405,6 +419,11 @@ impl App {
             return;
         }
 
+        if self.options_open {
+            self.handle_options_key(key);
+            return;
+        }
+
         match key.code {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.exit = true;
@@ -429,22 +448,18 @@ impl App {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.match_mode = self.match_mode.toggle();
+                self.options.match_mode = self.options.match_mode.toggle();
                 if !self.search_input.text().is_empty() {
                     self.dispatch_search();
                 }
                 return;
             }
-            KeyCode::Char('d')
+            KeyCode::Char('o')
                 if key
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.include_hidden = !self.include_hidden;
-                let _ = self.cmd_tx.send(search::WorkerCommand::Rebuild {
-                    include_hidden: self.include_hidden,
-                });
-                self.dispatch_search();
+                self.options_open = !self.options_open;
                 return;
             }
             KeyCode::Esc if self.focused_pane.is_input() && !self.searching => {
@@ -467,6 +482,39 @@ impl App {
             }
             Pane::FileList if !self.searching => self.handle_file_list_key(key),
             Pane::Preview if !self.searching => self.handle_preview_key(key),
+            _ => {}
+        }
+    }
+
+    fn handle_options_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.exit = true;
+            }
+            KeyCode::Esc => {
+                self.options_open = false;
+            }
+            KeyCode::Char('o')
+                if key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.options_open = false;
+            }
+            KeyCode::Char('r') => {
+                self.options.match_mode = self.options.match_mode.toggle();
+                if !self.search_input.text().is_empty() {
+                    self.dispatch_search();
+                }
+            }
+            KeyCode::Char('h') => {
+                self.options.include_hidden = !self.options.include_hidden;
+                self.rebuild_file_list();
+            }
+            KeyCode::Char('g') => {
+                self.options.include_gitignored = !self.options.include_gitignored;
+                self.rebuild_file_list();
+            }
             _ => {}
         }
     }
@@ -579,7 +627,7 @@ impl App {
 
     fn apply_all(&mut self) {
         let replacement =
-            replace::effective_replacement(self.replace_input.text(), self.match_mode);
+            replace::effective_replacement(self.replace_input.text(), self.options.match_mode);
         let mut to_remove = Vec::with_capacity(self.results.len());
         for (i, fm) in self.results.iter().enumerate() {
             if replace::has_overlapping_matches(&fm.matches) {
@@ -589,7 +637,7 @@ impl App {
                 ));
                 continue;
             }
-            if let Err(e) = Self::apply_to_file(fm, &replacement, self.match_mode) {
+            if let Err(e) = Self::apply_to_file(fm, &replacement, self.options.match_mode) {
                 self.status_message = Some(format!("{}: {e}", fm.path.display()));
             } else {
                 to_remove.push((i, fm.path.clone()));
@@ -610,7 +658,7 @@ impl App {
     fn apply_file(&mut self) {
         let sel = self.selected_file();
         let replacement =
-            replace::effective_replacement(self.replace_input.text(), self.match_mode);
+            replace::effective_replacement(self.replace_input.text(), self.options.match_mode);
         let Some(fm) = self.results.get(sel) else {
             return;
         };
@@ -619,7 +667,7 @@ impl App {
             return;
         }
         let path_to_remove = fm.path.clone();
-        if let Err(e) = Self::apply_to_file(fm, &replacement, self.match_mode) {
+        if let Err(e) = Self::apply_to_file(fm, &replacement, self.options.match_mode) {
             self.status_message = Some(e.to_string());
         } else {
             self.results.remove(sel);
@@ -632,7 +680,7 @@ impl App {
     fn apply_single_match(&mut self) {
         let sel = self.selected_file();
         let replacement =
-            replace::effective_replacement(self.replace_input.text(), self.match_mode);
+            replace::effective_replacement(self.replace_input.text(), self.options.match_mode);
         let Some(fm) = self.results.get_mut(sel) else {
             return;
         };
@@ -649,8 +697,12 @@ impl App {
                 return;
             }
         };
-        let new_content =
-            replace::apply_replacements(content, slice::from_ref(m), &replacement, self.match_mode);
+        let new_content = replace::apply_replacements(
+            content,
+            slice::from_ref(m),
+            &replacement,
+            self.options.match_mode,
+        );
         if let Err(e) = replace::write_file(&fm.path, &new_content) {
             self.status_message = Some(format!("{}: {e}", fm.path.display()));
             return;

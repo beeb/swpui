@@ -1,3 +1,22 @@
+use std::fmt;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Options {
+    pub match_mode: MatchMode,
+    pub include_hidden: bool,
+    pub include_gitignored: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            match_mode: MatchMode::default(),
+            include_hidden: true,
+            include_gitignored: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum MatchMode {
     #[default]
@@ -16,6 +35,18 @@ impl MatchMode {
             Self::Regex => Self::RegexMultiline,
             Self::RegexMultiline => Self::CaseAware,
         }
+    }
+}
+
+impl fmt::Display for MatchMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let disp = match self {
+            MatchMode::CaseAware => "case-aware",
+            MatchMode::Literal => "literal",
+            MatchMode::Regex => "regex",
+            MatchMode::RegexMultiline => "regex multiline",
+        };
+        f.write_str(disp)
     }
 }
 

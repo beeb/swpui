@@ -20,7 +20,7 @@ use tracing::debug;
 use crate::{
     hash::FileHash,
     path::ResponsivePath,
-    types::{MatchInfo, MatchMode},
+    types::{MatchInfo, MatchMode, Options},
 };
 
 pub struct SearchRequest {
@@ -31,7 +31,22 @@ pub struct SearchRequest {
 
 pub enum WorkerCommand {
     Search(SearchRequest),
-    Rebuild { include_hidden: bool },
+    Rebuild(WalkOptions),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WalkOptions {
+    pub include_hidden: bool,
+    pub include_gitignored: bool,
+}
+
+impl From<Options> for WalkOptions {
+    fn from(options: Options) -> Self {
+        Self {
+            include_hidden: options.include_hidden,
+            include_gitignored: options.include_gitignored,
+        }
+    }
 }
 
 impl From<SearchRequest> for WorkerCommand {
@@ -114,7 +129,7 @@ pub struct SearchWorker {
     cancelled: Arc<AtomicBool>,
     file_list: Vec<PathBuf>,
     pool: rayon::ThreadPool,
-    include_hidden: bool,
+    walk_options: WalkOptions,
 }
 
 impl SearchWorker {
@@ -123,6 +138,7 @@ impl SearchWorker {
         cmd_rx: Receiver<WorkerCommand>,
         result_tx: Sender<SearchResult>,
         cancelled: Arc<AtomicBool>,
+        walk_options: WalkOptions,
     ) -> anyhow::Result<Self> {
         let threads = std::thread::available_parallelism()
             .map_or(1, NonZero::get)
@@ -137,7 +153,7 @@ impl SearchWorker {
             cancelled,
             file_list: Vec::new(),
             pool,
-            include_hidden: true,
+            walk_options,
         })
     }
 
@@ -147,8 +163,8 @@ impl SearchWorker {
             // skip to the latest queued search command (makes cancelling faster)
             // but don't ignore rebuild commands
             while let Ok(newer) = self.cmd_rx.try_recv() {
-                if let WorkerCommand::Rebuild { include_hidden } = cmd {
-                    self.include_hidden = include_hidden;
+                if let WorkerCommand::Rebuild(opts) = cmd {
+                    self.walk_options = opts;
                     self.walk_files();
                 }
                 cmd = newer;
@@ -158,8 +174,8 @@ impl SearchWorker {
                     self.cancelled.store(false, Ordering::Relaxed);
                     self.execute_search(&request);
                 }
-                WorkerCommand::Rebuild { include_hidden } => {
-                    self.include_hidden = include_hidden;
+                WorkerCommand::Rebuild(opts) => {
+                    self.walk_options = opts;
                     self.walk_files();
                 }
             }
@@ -171,11 +187,20 @@ impl SearchWorker {
         let threads = std::thread::available_parallelism()
             .map_or(1, NonZero::get)
             .min(12);
+        let WalkOptions {
+            include_hidden,
+            include_gitignored,
+        } = self.walk_options;
         let walker = WalkBuilder::new(&self.root)
             .filter_entry(|entry| {
                 !(entry.path().is_dir() && entry.path().file_name().unwrap_or_default() == ".git")
             })
-            .hidden(!self.include_hidden)
+            .hidden(!include_hidden)
+            .git_ignore(!include_gitignored)
+            .git_global(!include_gitignored)
+            .git_exclude(!include_gitignored)
+            .ignore(!include_gitignored)
+            .parents(!include_gitignored)
             .threads(threads)
             .build_parallel();
         let file_count = &AtomicUsize::new(0);
@@ -505,8 +530,14 @@ mod tests {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
-        let worker =
-            SearchWorker::new(dir.path().to_path_buf(), cmd_rx, result_tx, cancelled).unwrap();
+        let worker = SearchWorker::new(
+            dir.path().to_path_buf(),
+            cmd_rx,
+            result_tx,
+            cancelled,
+            Options::default().into(),
+        )
+        .unwrap();
         let handle = thread::spawn(move || worker.run());
 
         cmd_tx
@@ -557,6 +588,7 @@ mod tests {
             cmd_rx,
             result_tx,
             cancelled.clone(),
+            Options::default().into(),
         )
         .unwrap();
         let handle = thread::spawn(move || worker.run());

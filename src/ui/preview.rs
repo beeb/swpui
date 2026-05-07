@@ -65,7 +65,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
     let inner = scroll_area.inner(area, None, Some(&app.preview_scroll));
 
     let raw_replacement = app.replace_input.text();
-    let replacement = effective_replacement(raw_replacement, app.match_mode);
+    let replacement = effective_replacement(raw_replacement, app.options.match_mode);
     let is_preview_focused = app.focused_pane == Pane::Preview;
     let inner_height = inner.height as usize;
 
@@ -73,7 +73,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
         &fm.matches,
         &preview,
         &replacement,
-        app.match_mode,
+        app.options.match_mode,
         is_preview_focused,
         app.selected_match,
         inner.width,
