@@ -1,6 +1,6 @@
 # swpui
 
-![swpui screenshot](https://raw.githubusercontent.com/beeb/swpui/refs/heads/main/cover.png)
+![swpui screenshot](https://raw.githubusercontent.com/beeb/swpui/refs/heads/main/screenshot.png)
 
 <div align="center">
   <a href="https://github.com/beeb/swpui"><img
