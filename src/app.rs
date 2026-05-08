@@ -1,23 +1,22 @@
 use std::{
-    collections::HashMap,
     path::PathBuf,
     sync::{Arc, RwLock, atomic::AtomicBool, mpsc},
     thread,
     time::{Duration, Instant},
 };
 
-use rat_widget::{list::ListState, scrolled::ScrollState, text_input::TextInputState};
+use rat_widget::{list::ListState, text_input::TextInputState};
 use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, Event, KeyEventKind},
 };
 
 use crate::{
-    preview::{PreviewCommand, PreviewResult, PreviewWorker, WantedSet, data::PreviewData},
+    preview::{PreviewCommand, PreviewResult, PreviewWorker, WantedSet},
     search::{FileMatches, SearchResult, SearchWorker, WorkerCommand},
     spinner::SpinnerState,
     types::{Options, Pane},
-    ui,
+    ui::{self, preview::PreviewState},
 };
 
 pub mod apply;
@@ -29,32 +28,24 @@ const POLL_TIMEOUT: Duration = Duration::from_millis(16);
 
 #[expect(clippy::struct_excessive_bools)]
 pub struct App {
+    pub root: PathBuf,
+    pub options: Options,
     pub search_input: TextInputState,
     pub replace_input: TextInputState,
-    pub options: Options,
-    pub results: Vec<FileMatches>,
-    pub focused_pane: Pane,
     pub file_list: ListState,
-    pub selected_match: usize,
-    /// Extra line offset within the selected match (for tall matches that exceed the viewport).
-    pub preview_line_offset: usize,
-    /// Max value for `preview_line_offset`, computed during render.
-    pub preview_line_offset_max: usize,
-    pub preview_scroll: ScrollState,
+    pub preview: PreviewState,
+    pub spinner: SpinnerState,
+    pub focused_pane: Pane,
     pub status_message: Option<String>,
     pub searching: bool,
     pub truncated: bool,
-    pub spinner: SpinnerState,
     pub confirm_apply_all: bool,
     pub options_open: bool,
-    pub preview_data: HashMap<PathBuf, Arc<PreviewData>>,
-    pub preview_error: HashMap<PathBuf, String>,
-    pub preview_loading: bool,
-    pub root: PathBuf,
+    pub pending_search: bool,
     pub exit: bool,
     pub generation: u64,
+    pub results: Vec<FileMatches>,
     pub last_keystroke: Option<Instant>,
-    pub pending_search: bool,
     pub cmd_tx: mpsc::Sender<WorkerCommand>,
     pub result_rx: mpsc::Receiver<SearchResult>,
     pub cancelled: Arc<AtomicBool>,
@@ -92,19 +83,13 @@ impl App {
             results: Vec::new(),
             focused_pane: Pane::default(),
             file_list: ListState::default(),
-            selected_match: 0,
-            preview_line_offset: 0,
-            preview_line_offset_max: 0,
-            preview_scroll: ScrollState::new(),
             status_message: None,
             searching: false,
             truncated: false,
             spinner: SpinnerState::default(),
             confirm_apply_all: false,
             options_open: false,
-            preview_data: HashMap::new(),
-            preview_error: HashMap::new(),
-            preview_loading: false,
+            preview: PreviewState::new(),
             exit: false,
             generation: 0,
             last_keystroke: None,
@@ -140,16 +125,13 @@ impl App {
     pub fn clamp_selection(&mut self) {
         if self.results.is_empty() {
             self.file_list.select(Some(0));
-            self.selected_match = 0;
-            self.preview_line_offset = 0;
-            self.preview_scroll.clear();
+            self.preview.reset_position();
             self.focused_pane = Pane::FileList;
         } else {
             let clamped = self.selected_file().min(self.results.len() - 1);
             self.file_list.select(Some(clamped));
             let match_count = self.results[clamped].matches.len();
-            self.selected_match = self.selected_match.min(match_count.saturating_sub(1));
-            self.preview_line_offset = 0;
+            self.preview.clamp_match(match_count);
         }
     }
 

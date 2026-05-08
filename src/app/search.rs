@@ -119,9 +119,7 @@ impl App {
         }
         self.searching = true;
         self.file_list.select(Some(0));
-        self.selected_match = 0;
-        self.preview_line_offset = 0;
-        self.preview_scroll.clear();
+        self.preview.reset_position();
         let _ = self.cmd_tx.send(
             SearchRequest {
                 pattern: pattern.to_string(),

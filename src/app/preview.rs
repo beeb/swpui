@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::{
     app::App,
@@ -9,9 +9,7 @@ use crate::{
 impl App {
     pub fn reset_preview_state(&mut self) {
         let _ = self.preview_cmd_tx.send(PreviewCommand::Clear);
-        self.preview_data.clear();
-        self.preview_error.clear();
-        self.preview_loading = false;
+        self.preview.clear();
         *self.preview_wanted.write().or_panic("poisoned lock") = [None, None, None];
     }
 
@@ -32,14 +30,13 @@ impl App {
             .or_panic("poisoned lock")
             .clone_from(&wanted);
 
-        let is_wanted = |p: &PathBuf| wanted.iter().any(|w| w.as_ref() == Some(p));
-        self.preview_data.retain(|p, _| is_wanted(p));
-        self.preview_error.retain(|p, _| is_wanted(p));
+        let is_wanted = |p: &Path| wanted.iter().any(|w| w.as_deref() == Some(p));
+        self.preview.retain(is_wanted);
 
         let pattern = self.search_input.text().to_string();
         let mode = self.options.match_mode;
         for slot in wanted.iter().flatten() {
-            if self.preview_data.contains_key(slot) {
+            if self.preview.has_data(slot) {
                 // data is already available
                 continue;
             }
@@ -63,7 +60,8 @@ impl App {
                     generation: self.preview_generation,
                 }));
         }
-        self.preview_loading = !self.preview_data.contains_key(&active_path);
+        self.preview
+            .set_loading(!self.preview.has_data(&active_path));
     }
 
     pub fn poll_preview_results(&mut self) {
@@ -74,10 +72,10 @@ impl App {
                 .map(|fm| fm.path.clone());
             match result {
                 PreviewResult::Ready { path, data, .. } => {
-                    self.preview_error.remove(&path);
-                    self.preview_data.insert(path.clone(), data);
-                    if Some(&path) == active.as_ref() {
-                        self.preview_loading = false;
+                    let is_active = Some(&path) == active.as_ref();
+                    self.preview.set_data(path, data);
+                    if is_active {
+                        self.preview.set_loading(false);
                     }
                 }
                 PreviewResult::Updated {
@@ -87,18 +85,16 @@ impl App {
                     data,
                     ..
                 } => {
-                    self.preview_error.remove(&path);
-                    self.preview_data.insert(path.clone(), data);
+                    let is_active = Some(&path) == active.as_ref();
+                    self.preview.set_data(path.clone(), data);
                     let Some(fm) = self.results.iter_mut().find(|fm| fm.path == path) else {
                         continue;
                     };
                     fm.matches = matches;
                     fm.hash = content_hash;
-                    if Some(&path) == active.as_ref() {
-                        self.selected_match = 0;
-                        self.preview_line_offset = 0;
-                        self.preview_scroll.clear();
-                        self.preview_loading = false;
+                    if is_active {
+                        self.preview.reset_position();
+                        self.preview.set_loading(false);
                     }
                 }
                 PreviewResult::Removed { path, .. } => {
@@ -106,27 +102,25 @@ impl App {
                         continue;
                     };
                     self.results.remove(idx);
-                    self.preview_data.remove(&path);
-                    self.preview_error.remove(&path);
+                    self.preview.remove_path(&path);
                     self.clamp_selection();
                     self.dispatch_preview();
                 }
                 PreviewResult::Error { path, message, .. } => {
-                    self.preview_data.remove(&path);
-                    self.preview_error.insert(path.clone(), message);
-                    if Some(&path) == active.as_ref() {
-                        self.preview_loading = false;
+                    let is_active = Some(&path) == active.as_ref();
+                    self.preview.set_error(path, message);
+                    if is_active {
+                        self.preview.set_loading(false);
                     }
                 }
             }
         }
     }
 
-    pub fn invalidate_preview_for(&mut self, path: &PathBuf) {
+    pub fn invalidate_preview_for(&mut self, path: &Path) {
         let _ = self
             .preview_cmd_tx
-            .send(PreviewCommand::Invalidate(path.clone()));
-        self.preview_data.remove(path);
-        self.preview_error.remove(path);
+            .send(PreviewCommand::Invalidate(path.to_path_buf()));
+        self.preview.remove_path(path);
     }
 }

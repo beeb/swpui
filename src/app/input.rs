@@ -1,7 +1,7 @@
 use rat_widget::{event::TextOutcome, text_input};
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
-use crate::{app::App, types::Pane};
+use crate::{app::App, types::Pane, ui::preview};
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -135,18 +135,14 @@ impl App {
             KeyCode::Char('j') | KeyCode::Down if !self.results.is_empty() => {
                 let next = (self.selected_file() + 1).min(self.results.len() - 1);
                 self.file_list.select(Some(next));
-                self.selected_match = 0;
-                self.preview_line_offset = 0;
-                self.preview_scroll.clear();
+                self.preview.reset_position();
                 self.dispatch_preview();
                 return;
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 let prev = self.selected_file().saturating_sub(1);
                 self.file_list.select(Some(prev));
-                self.selected_match = 0;
-                self.preview_line_offset = 0;
-                self.preview_scroll.clear();
+                self.preview.reset_position();
                 self.dispatch_preview();
                 return;
             }
@@ -161,54 +157,20 @@ impl App {
 
     fn handle_preview_key(&mut self, key: KeyEvent) {
         let sel = self.selected_file();
-        match key.code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(fm) = self.results.get(sel)
-                    && !fm.matches.is_empty()
-                {
-                    if self.preview_line_offset < self.preview_line_offset_max {
-                        self.preview_line_offset += 1;
-                    } else {
-                        let new = (self.selected_match + 1).min(fm.matches.len() - 1);
-                        if new != self.selected_match {
-                            self.selected_match = new;
-                            self.preview_line_offset = 0;
-                        }
-                    }
-                }
-                return;
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                if self.preview_line_offset > 0 {
-                    self.preview_line_offset -= 1;
-                } else {
-                    let new = self.selected_match.saturating_sub(1);
-                    if new != self.selected_match {
-                        self.selected_match = new;
-                        // scroll to bottom of the previous match
-                        self.preview_line_offset = usize::MAX;
-                    }
-                }
-                return;
-            }
-            KeyCode::Char(' ') => {
+        let match_count = self.results.get(sel).map_or(0, |fm| fm.matches.len());
+        let outcome = self.preview.handle_key_event(match_count, key);
+        match outcome {
+            preview::PreviewOutcome::Used => {}
+            preview::PreviewOutcome::Apply => self.apply_single_match(),
+            preview::PreviewOutcome::ToggleSkip => {
                 if let Some(fm) = self.results.get_mut(sel)
-                    && let Some(m) = fm.matches.get_mut(self.selected_match)
+                    && let Some(m) = fm.matches.get_mut(self.preview.selected_match())
                 {
                     m.skip = !m.skip;
                 }
-                return;
             }
-            KeyCode::Enter => {
-                self.apply_single_match();
-                return;
-            }
-            KeyCode::Char('h') | KeyCode::Esc | KeyCode::Left => {
-                self.focused_pane = Pane::FileList;
-                return;
-            }
-            _ => {}
+            preview::PreviewOutcome::Leave => self.focused_pane = Pane::FileList,
+            preview::PreviewOutcome::Continue => self.handle_non_input_key(key),
         }
-        self.handle_non_input_key(key);
     }
 }

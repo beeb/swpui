@@ -1,3 +1,5 @@
+use std::{borrow::Cow, ops::Range};
+
 use crate::types::MatchInfo;
 
 /// Number of context lines kept on either side of a match.
@@ -141,6 +143,31 @@ impl PreviewMatch {
             context_before,
             context_after,
             kind,
+        }
+    }
+
+    /// Build a `(content, range)` pair for word-boundary expansion of this match.
+    ///
+    /// `SingleLine` borrows the line content directly. `MultiLine` stitches the matched lines
+    /// with `\n` so word-boundary expansion behaves identically to operating on the original
+    /// file content (newlines are not word characters, so expansion stays inside the first/last
+    /// matched line).
+    pub fn match_context(&self) -> (Cow<'_, str>, Range<usize>) {
+        match &self.kind {
+            PreviewMatchKind::SingleLine { line_content, .. } => (
+                Cow::Borrowed(line_content.as_ref()),
+                self.match_col_start..self.match_col_end,
+            ),
+            PreviewMatchKind::MultiLine { matched_lines, .. } => {
+                let stitched: String = matched_lines
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<&str>>()
+                    .join("\n");
+                let last_line_len = matched_lines.last().map_or(0, |l| l.len());
+                let end = stitched.len() - (last_line_len - self.match_col_end);
+                (Cow::Owned(stitched), self.match_col_start..end)
+            }
         }
     }
 

@@ -8,10 +8,10 @@ use ratatui::{
     widgets::{Block, Clear, Paragraph, StatefulWidget as _},
 };
 
-use crate::{app::App, types::Pane};
+use crate::{app::App, replace::effective_replacement, types::Pane, ui::preview::Preview};
 
 mod file_list;
-mod preview;
+pub mod preview;
 
 pub fn render(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
@@ -42,7 +42,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 
     render_input_area(app, frame, input_area);
     file_list::render(app, frame, file_area);
-    preview::render(app, frame, right);
+    render_preview(app, frame, right);
     render_status_bar(app, frame, status_area, hints_area);
     render_options_strip(app, frame, options_area);
 
@@ -52,6 +52,19 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     if app.options_open {
         render_options_modal(app, frame, area);
     }
+}
+
+fn render_preview(app: &mut App, frame: &mut Frame, area: Rect) {
+    let replacement = effective_replacement(app.replace_input.text(), app.options.match_mode);
+    let file = app.results.get(app.selected_file());
+    Preview {
+        file,
+        replacement: &replacement,
+        mode: app.options.match_mode,
+        focused: app.focused_pane == Pane::Preview,
+        border_style: focused_border_style(Pane::Preview, app.focused_pane),
+    }
+    .render(area, frame.buffer_mut(), &mut app.preview);
 }
 
 fn focused_border_style(pane: Pane, current: Pane) -> Style {

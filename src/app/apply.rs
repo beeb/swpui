@@ -73,7 +73,7 @@ impl App {
         let Some(fm) = self.results.get_mut(sel) else {
             return;
         };
-        let Some(m) = fm.matches.get(self.selected_match) else {
+        let Some(m) = fm.matches.get(self.preview.selected_match()) else {
             return;
         };
         if m.skip {
@@ -99,7 +99,7 @@ impl App {
         let path_to_remove = fm.path.clone();
         // remove this match from the results
         // if no matches left, remove the file
-        fm.matches.remove(self.selected_match);
+        fm.matches.remove(self.preview.selected_match());
         if fm.matches.is_empty() {
             self.results.remove(sel);
         }
