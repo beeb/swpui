@@ -291,7 +291,7 @@ impl StatefulWidget for Preview<'_> {
     }
 }
 
-/// Outcome of [`handle_events`].
+/// Outcome of [`handle_key_event`](PreviewState::handle_key_event).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewOutcome {
     /// Event not handled by the preview.
