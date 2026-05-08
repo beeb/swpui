@@ -110,6 +110,17 @@ $ swp
 | ----- | --------------- |
 | `Esc` | Focus file list |
 
+### Capture groups
+
+In regex mode, the replacement template can reference capture groups from the search pattern using `$0` through `$9`:
+
+- `$0` expands to the entire match.
+- `$1`-`$9` expand to the corresponding capture groups (parenthesized sub-expressions in the pattern).
+- `$$` produces a literal `$`.
+- References to groups that did not participate in the match expand to an empty string.
+
+For example, searching for `(\w+)_(\w+)` and replacing with `$2_$1` swaps the two halves of each `snake_case` pair.
+
 ## Features
 
 - [x] Case-aware replacement

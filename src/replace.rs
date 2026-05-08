@@ -69,7 +69,10 @@ impl<'c, 'r> Replacement<'c, 'r> {
     /// `$$` produces a literal `$`. References to non-participating groups produce an empty string.
     /// Returns a borrowed slice when no `$` is present.
     fn expand_captures(&self) -> Cow<'r, str> {
-        if !self.repl_template.contains('$') || self.captures.is_empty() {
+        if !self.mode.is_regex() || !self.repl_template.contains('$') {
+            return Cow::Borrowed(self.repl_template);
+        }
+        if self.captures.is_empty() && !self.repl_template.contains("$0") {
             return Cow::Borrowed(self.repl_template);
         }
         let mut result = String::with_capacity(self.repl_template.len());
@@ -86,6 +89,9 @@ impl<'c, 'r> Replacement<'c, 'r> {
                         let idx = (d as u8 - b'0') as usize;
                         if let Some(cap) = self.captures.get(idx) {
                             result.push_str(cap);
+                        } else if idx == 0 {
+                            // `$0` falls back to the full match when no capture groups were collected
+                            result.push_str(&self.content[self.match_range.clone()]);
                         }
                     }
                     _ => result.push('$'),
@@ -769,6 +775,22 @@ mod tests {
     }
 
     #[test]
+    fn capture_full_in_regex_mode() {
+        let info = make_match(6, 9);
+        let out =
+            Replacement::new(&info, "hello foo world", 6..9, "<$0>", MatchMode::Regex).compute();
+        assert_eq!(out.as_ref(), "<foo>");
+    }
+
+    #[test]
+    fn capture_full_in_literal_mode() {
+        let info = make_match(6, 9);
+        let out =
+            Replacement::new(&info, "hello foo world", 6..9, "<$0>", MatchMode::Literal).compute();
+        assert_eq!(out.as_ref(), "<$0>");
+    }
+
+    #[test]
     fn captures_expand_group() {
         let info = MatchInfo {
             captures: vec![Box::from("foo bar"), Box::from("foo"), Box::from("bar")].into(),
@@ -849,17 +871,5 @@ mod tests {
         let out =
             Replacement::new(&info, "fooBar", 0..3, "new_thing", MatchMode::CaseAware).compute();
         assert_eq!(out.as_ref(), "newThing");
-    }
-
-    #[test]
-    fn replacement_compute_case_aware_with_captures() {
-        // captures expansion happens before case-awareness; the expanded string is then re-cased
-        let info = MatchInfo {
-            captures: vec![Box::from("hi"), Box::from("hi")].into(),
-            ..make_match(0, 7)
-        };
-        let out =
-            Replacement::new(&info, "FOO_BAR", 0..7, "$1_world", MatchMode::CaseAware).compute();
-        assert_eq!(out.as_ref(), "HI_WORLD");
     }
 }

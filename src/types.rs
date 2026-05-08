@@ -36,6 +36,14 @@ impl MatchMode {
             Self::RegexMultiline => Self::CaseAware,
         }
     }
+
+    #[must_use]
+    pub fn is_regex(&self) -> bool {
+        match self {
+            MatchMode::CaseAware | MatchMode::Literal => false,
+            MatchMode::Regex | MatchMode::RegexMultiline => true,
+        }
+    }
 }
 
 impl fmt::Display for MatchMode {
