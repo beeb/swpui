@@ -129,7 +129,6 @@ pub struct SearchWorker {
     cancelled: Arc<AtomicBool>,
     file_list: Vec<PathBuf>,
     pool: rayon::ThreadPool,
-    walk_options: WalkOptions,
 }
 
 impl SearchWorker {
@@ -138,7 +137,6 @@ impl SearchWorker {
         cmd_rx: Receiver<WorkerCommand>,
         result_tx: Sender<SearchResult>,
         cancelled: Arc<AtomicBool>,
-        walk_options: WalkOptions,
     ) -> anyhow::Result<Self> {
         let threads = std::thread::available_parallelism()
             .map_or(1, NonZero::get)
@@ -153,19 +151,17 @@ impl SearchWorker {
             cancelled,
             file_list: Vec::new(),
             pool,
-            walk_options,
         })
     }
 
-    pub fn run(mut self) {
-        self.walk_files();
+    pub fn run(mut self, opts: WalkOptions) {
+        self.walk_files(opts);
         while let Ok(mut cmd) = self.cmd_rx.recv() {
             // skip to the latest queued search command (makes cancelling faster)
             // but don't ignore rebuild commands
             while let Ok(newer) = self.cmd_rx.try_recv() {
                 if let WorkerCommand::Rebuild(opts) = cmd {
-                    self.walk_options = opts;
-                    self.walk_files();
+                    self.walk_files(opts);
                 }
                 cmd = newer;
             }
@@ -175,14 +171,13 @@ impl SearchWorker {
                     self.execute_search(&request);
                 }
                 WorkerCommand::Rebuild(opts) => {
-                    self.walk_options = opts;
-                    self.walk_files();
+                    self.walk_files(opts);
                 }
             }
         }
     }
 
-    fn walk_files(&mut self) {
+    fn walk_files(&mut self, opts: WalkOptions) {
         let (tx, rx) = mpsc::channel();
         let threads = std::thread::available_parallelism()
             .map_or(1, NonZero::get)
@@ -190,7 +185,7 @@ impl SearchWorker {
         let WalkOptions {
             include_hidden,
             include_gitignored,
-        } = self.walk_options;
+        } = opts;
         let walker = WalkBuilder::new(&self.root)
             .filter_entry(|entry| {
                 !(entry.path().is_dir() && entry.path().file_name().unwrap_or_default() == ".git")
@@ -530,15 +525,9 @@ mod tests {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
-        let worker = SearchWorker::new(
-            dir.path().to_path_buf(),
-            cmd_rx,
-            result_tx,
-            cancelled,
-            Options::default().into(),
-        )
-        .unwrap();
-        let handle = thread::spawn(move || worker.run());
+        let worker =
+            SearchWorker::new(dir.path().to_path_buf(), cmd_rx, result_tx, cancelled).unwrap();
+        let handle = thread::spawn(move || worker.run(Options::default().into()));
 
         cmd_tx
             .send(WorkerCommand::Search(SearchRequest {
@@ -588,10 +577,9 @@ mod tests {
             cmd_rx,
             result_tx,
             cancelled.clone(),
-            Options::default().into(),
         )
         .unwrap();
-        let handle = thread::spawn(move || worker.run());
+        let handle = thread::spawn(move || worker.run(Options::default().into()));
 
         // send first request then immediately cancel and send second
         cmd_tx

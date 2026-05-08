@@ -86,14 +86,8 @@ impl App {
         let cancelled = Arc::new(AtomicBool::new(false));
 
         let options = Options::default();
-        let worker = SearchWorker::new(
-            root.clone(),
-            cmd_rx,
-            result_tx,
-            Arc::clone(&cancelled),
-            options.into(),
-        )?;
-        thread::spawn(move || worker.run());
+        let worker = SearchWorker::new(root.clone(), cmd_rx, result_tx, Arc::clone(&cancelled))?;
+        thread::spawn(move || worker.run(options.into()));
 
         let (preview_cmd_tx, preview_cmd_rx) = mpsc::channel();
         let (preview_result_tx, preview_result_rx) = mpsc::channel();
