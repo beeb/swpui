@@ -43,24 +43,35 @@ impl Gutter {
     }
 
     /// Gutter for a context line: blank indicator, blue line number.
-    fn context_spans(&self, line_number: usize) -> Vec<Span<'static>> {
+    fn context_spans(&self, line_number: usize, is_skipped: bool) -> Vec<Span<'static>> {
         let width = self.line_nb_width;
+        let style = if is_skipped {
+            Style::default().dim()
+        } else {
+            Style::default().fg(Color::Blue).dim()
+        };
         vec![
             Span::raw(" "),
-            Span::styled(
-                format!("{line_number:>width$} "),
-                Style::default().fg(Color::Blue).dim(),
-            ),
+            Span::styled(format!("{line_number:>width$} "), style),
         ]
     }
 
     /// Gutter for a matched line.
-    fn match_spans(&self, line_number: Option<usize>, is_selected: bool) -> Vec<Span<'static>> {
-        let line_nb_style = Style::default().fg(if is_selected {
-            Color::Cyan
+    fn match_spans(
+        &self,
+        line_number: Option<usize>,
+        is_selected: bool,
+        is_skipped: bool,
+    ) -> Vec<Span<'static>> {
+        let line_nb_style = if is_skipped {
+            Style::default().dim()
         } else {
-            Color::Blue
-        });
+            Style::default().fg(if is_selected {
+                Color::Cyan
+            } else {
+                Color::Blue
+            })
+        };
         let (ind, ind_style) = if is_selected {
             (
                 ">",
@@ -96,9 +107,14 @@ struct MatchLine {
 }
 
 impl MatchLine {
-    fn new(gutter: &Gutter, line_number: Option<usize>, is_selected: bool) -> Self {
+    fn new(
+        gutter: &Gutter,
+        line_number: Option<usize>,
+        is_selected: bool,
+        is_skipped: bool,
+    ) -> Self {
         Self {
-            spans: gutter.match_spans(line_number, is_selected),
+            spans: gutter.match_spans(line_number, is_selected, is_skipped),
             is_selected,
         }
     }
@@ -199,7 +215,7 @@ impl<'a> PreviewBuilder<'a> {
                 let n = preview.line_count(info, self.replacement);
                 lines.extend((0..n).map(|_| Line::default()));
             } else {
-                lines.extend(self.context_lines(&preview.context_before));
+                lines.extend(self.context_lines(&preview.context_before, info.skip));
 
                 let (ctx, range) = preview.match_context();
                 let effective_replacement =
@@ -224,7 +240,7 @@ impl<'a> PreviewBuilder<'a> {
                     }
                 }
 
-                lines.extend(self.context_lines(&preview.context_after));
+                lines.extend(self.context_lines(&preview.context_after, info.skip));
             }
         }
 
@@ -234,9 +250,10 @@ impl<'a> PreviewBuilder<'a> {
     fn context_lines<'b>(
         &'b self,
         ctx: &'b [ContextLine],
+        is_skipped: bool,
     ) -> impl Iterator<Item = Line<'static>> + 'b {
         ctx.iter().map(move |c| {
-            let mut spans = self.gutter.context_spans(c.line_number);
+            let mut spans = self.gutter.context_spans(c.line_number, is_skipped);
             spans.push(Span::styled(c.content.to_string(), Style::default().dim()));
             Line::from(spans)
         })
@@ -263,21 +280,17 @@ impl<'a> PreviewBuilder<'a> {
         let dim = Style::default().dim();
         let content_max = self.gutter.content_max_width(self.inner_width);
 
-        let mut ml = MatchLine::new(&self.gutter, Some(*line_number), is_selected);
+        let mut ml = MatchLine::new(&self.gutter, Some(*line_number), is_selected, info.skip);
 
         if info.skip {
-            let content_max = content_max.saturating_sub(10); // for the "skipped" hint
-            ml.push(Span::styled("[skipped] ", dim));
             let t = TruncatedLine::new(before, matched, None, after, content_max);
             if t.left_ellipsis {
                 ml.push(Span::styled("\u{2026}", dim));
             }
-            ml.push(Span::styled(t.before.to_string(), dim));
             ml.push(Span::styled(
-                t.matched.to_string(),
-                dim.add_modifier(Modifier::CROSSED_OUT),
+                format!("{}{}{}", t.before, t.matched, t.after),
+                dim,
             ));
-            ml.push(Span::styled(t.after.to_string(), dim));
             if t.right_ellipsis {
                 ml.push(Span::styled("\u{2026}", dim));
             }
@@ -350,7 +363,7 @@ impl<'a> PreviewBuilder<'a> {
 
         let make_line =
             |line_number: Option<usize>, marker: &str, content: String, style: Style| {
-                let mut ml = MatchLine::new(&self.gutter, line_number, is_selected);
+                let mut ml = MatchLine::new(&self.gutter, line_number, is_selected, info.skip);
                 ml.push(Span::styled(format!("{marker} {content}"), style));
                 ml.into()
             };
