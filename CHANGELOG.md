@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.7.0] - 2026-05-08
+
+### Added
+
+
+-  improve skipped match rendering ([#33](https://github.com/beeb/swpui/pull/33)) - ([458af10](https://github.com/beeb/swpui/commit/458af10ce082af6fbfb55c50359bc07b715f5a72))
+-  enable capture group 0 even with no captures ([#34](https://github.com/beeb/swpui/pull/34)) - ([727c3df](https://github.com/beeb/swpui/commit/727c3dfa1275ffc644766632dfe0a6fd65172836))
+
+### Changed
+
+
+-  various ([#31](https://github.com/beeb/swpui/pull/31)) - ([664ae54](https://github.com/beeb/swpui/commit/664ae54d5b80bb892a124dfd78e08f1c75796c87))
+
+
+
+
+**Full Changelog**: [0.6.0...0.7.0](https://github.com/beeb/swpui/compare/v0.6.0...v0.7.0)
+
+
 ## [0.6.0] - 2026-05-07
 
 ### Added
