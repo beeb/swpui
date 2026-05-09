@@ -1,6 +1,6 @@
 [package]
 name = "swpui"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 rust-version = "1.94.1"
 description = "TUI utility to search and replace text, with a focus on ergonomics, speed and case-awareness in source code"

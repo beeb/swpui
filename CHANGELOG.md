@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.7.2] - 2026-05-09
+
+### Fixed
+
+
+-  unstable if let guard ([#39](https://github.com/beeb/swpui/pull/39)) - ([ffbadb8](https://github.com/beeb/swpui/commit/ffbadb89330197c283ed7371246907117025b7ad))
+
+
+
+
+**Full Changelog**: [0.7.1...0.7.2](https://github.com/beeb/swpui/compare/v0.7.1...v0.7.2)
+
+
 ## [0.7.1] - 2026-05-09
 
 ### Added
