@@ -1,28 +1,17 @@
 [package]
-authors = ["Valentin Bersier <hi@beeb.li>"]
-categories = ["development-tools", "command-line-utilities"]
-description = "TUI utility to search and replace text, with a focus on ergonomics, speed and case-awareness in source code"
-edition = "2024"
-license = "MIT OR Apache-2.0"
 name = "swpui"
+version = "0.7.1"
+edition = "2024"
+rust-version = "1.94.1"
+description = "TUI utility to search and replace text, with a focus on ergonomics, speed and case-awareness in source code"
 readme = "./README.md"
 repository = "https://github.com/beeb/swpui"
-rust-version = "1.94.0"
-version = "0.7.1"
+license = "MIT OR Apache-2.0"
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "swp"
 path = "src/main.rs"
-
-[lints.clippy]
-allow_attributes = "warn"
-expect_used = "deny"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-mod_module_files = "warn"
-module_name_repetitions = "allow"
-pedantic = { level = "warn", priority = -1 }
-unwrap_used = "deny"
 
 [dependencies]
 anyhow = "1.0.102"
@@ -37,8 +26,18 @@ regex = "1.11.1"
 sha2 = "0.11.0"
 tempfile = "3.19.1"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["fmt", "env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 unicode-width = "0.2"
+
+[lints.clippy]
+allow_attributes = "warn"
+expect_used = "deny"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+mod_module_files = "warn"
+module_name_repetitions = "allow"
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
 
 [profile.release]
 lto = "thin"
