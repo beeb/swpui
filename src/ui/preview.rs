@@ -18,8 +18,11 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
-    preview::data::PreviewData, search::FileMatches, types::MatchMode,
-    ui::preview::builder::PreviewBuilder, utils::trim_start_to_width,
+    preview::data::PreviewData,
+    search::FileMatches,
+    types::{MatchMode, Pane},
+    ui::preview::builder::PreviewBuilder,
+    utils::trim_start_to_width,
 };
 
 /// Per-frame mutable state for the [`Preview`] widget.
@@ -176,14 +179,15 @@ pub struct Preview<'a> {
 impl Preview<'_> {
     fn format_title(&self, area_width: u16) -> String {
         let title_max = area_width.saturating_sub(2) as usize; // border chars
+        let digit = Pane::Preview.digit();
         self.file.map_or_else(
-            || "Preview".to_string(),
+            || format!("\u{2500}[{digit}]\u{2500}Preview"),
             |fm| {
                 let path_str = fm
                     .responsive_path
                     .as_ref()
                     .map_or(fm.path.to_string_lossy().into(), ToString::to_string);
-                let prefix = "Preview: ";
+                let prefix = format!("\u{2500}[{digit}]\u{2500}Preview: ");
                 let full = format!("{prefix}{path_str}");
                 if full.width() <= title_max {
                     full

@@ -122,6 +122,9 @@ impl App {
             KeyCode::Char('q') => self.exit = true,
             KeyCode::Char('s') => self.toggle_skip_file(),
             KeyCode::Char('f') => self.apply_file(),
+            KeyCode::Char(c) if let Some(pane) = Pane::from_digit(c) => {
+                self.focused_pane = pane;
+            }
             _ => {}
         }
     }

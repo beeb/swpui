@@ -115,6 +115,27 @@ impl Pane {
     pub fn is_input(self) -> bool {
         matches!(self, Self::SearchInput | Self::ReplaceInput)
     }
+
+    #[must_use]
+    pub fn digit(self) -> char {
+        match self {
+            Self::SearchInput => '1',
+            Self::ReplaceInput => '2',
+            Self::FileList => '3',
+            Self::Preview => '4',
+        }
+    }
+
+    #[must_use]
+    pub fn from_digit(c: char) -> Option<Self> {
+        match c {
+            '1' => Some(Self::SearchInput),
+            '2' => Some(Self::ReplaceInput),
+            '3' => Some(Self::FileList),
+            '4' => Some(Self::Preview),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

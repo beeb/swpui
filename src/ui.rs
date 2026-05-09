@@ -79,7 +79,11 @@ fn render_input_area(app: &mut App, frame: &mut Frame, area: Rect) {
     let [search_area, replace_area] =
         Layout::vertical([Constraint::Length(3), Constraint::Length(3)]).areas(area);
 
-    let mode_label = format!("Search ({})", app.options.match_mode);
+    let mode_label = format!(
+        "\u{2500}[{}]\u{2500}Search ({})",
+        Pane::SearchInput.digit(),
+        app.options.match_mode
+    );
 
     // search input
     app.search_input
@@ -106,7 +110,10 @@ fn render_input_area(app: &mut App, frame: &mut Frame, area: Rect) {
     let replace_block = Block::bordered()
         .border_set(border::ROUNDED)
         .border_style(focused_border_style(Pane::ReplaceInput, app.focused_pane))
-        .title("Replace");
+        .title(format!(
+            "\u{2500}[{}]\u{2500}Replace",
+            Pane::ReplaceInput.digit()
+        ));
     TextInput::new()
         .style(Style::default())
         .focus_style(Style::default())

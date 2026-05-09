@@ -17,15 +17,22 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
     } else {
         ""
     };
+    let digit = Pane::FileList.digit();
     let title = if app.searching {
         format!(
-            "{} Files ({}{} matched)",
+            "\u{2500}[{}]\u{2500}{} Files ({}{} matched)",
+            digit,
             app.spinner.frame(),
             app.results.len(),
             truncated,
         )
     } else {
-        format!("Files ({} matched{})", app.results.len(), truncated)
+        format!(
+            "\u{2500}[{}]\u{2500}Files ({} matched{})",
+            digit,
+            app.results.len(),
+            truncated
+        )
     };
     let border_style = focused_border_style(Pane::FileList, app.focused_pane);
     let block = Block::bordered()
