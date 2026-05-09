@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.7.1] - 2026-05-09
+
+### Added
+
+- **(ui)** add keybinds to switch to a pane ([#37](https://github.com/beeb/swpui/pull/37)) - ([84f95d7](https://github.com/beeb/swpui/commit/84f95d7d5b3dabb45fb349d44570d57d93598981))
+
+
+-  rename gitignore setting ([#35](https://github.com/beeb/swpui/pull/35)) - ([4b55140](https://github.com/beeb/swpui/commit/4b55140add54f891557141aba22ba26118d41d57))
+
+
+
+
+**Full Changelog**: [0.7.0...0.7.1](https://github.com/beeb/swpui/compare/v0.7.0...v0.7.1)
+
+
 ## [0.7.0] - 2026-05-08
 
 ### Added
