@@ -154,7 +154,7 @@ fn render_options_modal(app: &App, frame: &mut Frame, area: Rect) {
     let rows: [(&str, &str, &str); 3] = [
         ("r", "Search mode  ", match_mode.as_str()),
         ("h", "Hidden files ", hidden),
-        ("g", "Gitignored   ", gitignored),
+        ("g", ".gitignore   ", gitignored),
     ];
 
     let row_width = rows
@@ -186,7 +186,7 @@ fn render_options_modal(app: &App, frame: &mut Frame, area: Rect) {
         .iter()
         .map(|(key, name, val)| {
             Line::from(vec![
-                Span::styled(format!(" [{key}]"), Style::default().fg(Color::Blue)),
+                Span::styled(format!(" {key} "), Style::default().fg(Color::Blue)),
                 Span::raw(format!(" {name} ")),
                 Span::styled(*val, Style::default().fg(Color::Cyan)),
             ])
@@ -209,7 +209,7 @@ fn render_options_strip(app: &App, frame: &mut Frame, area: Rect) {
         "excl"
     };
     let line = Line::from(vec![Span::styled(
-        format!("hidden: {hidden} | gitignored: {gitignored}"),
+        format!("hidden: {hidden} | .gitignore: {gitignored}"),
         Style::default().dim(),
     )]);
     frame.render_widget(line, area);
