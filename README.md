@@ -1,6 +1,6 @@
 # swpui
 
-![swpui screenshot](https://raw.githubusercontent.com/beeb/swpui/refs/heads/main/screenshot.png)
+<a href="https://asciinema.org/a/F3Md92sdwyqgvOgZ"><img alt="swpui screencast" src="https://raw.githubusercontent.com/beeb/swpui/refs/heads/main/screenshot.png" /></a>
 
 <div align="center">
   <a href="https://github.com/beeb/swpui"><img
