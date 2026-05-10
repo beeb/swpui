@@ -31,6 +31,7 @@
             buildInputs = with pkgs; [
               cargo-deny
               cargo-dist
+              cargo-hack
               toolchain
             ];
 
