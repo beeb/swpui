@@ -58,12 +58,39 @@ impl fmt::Display for MatchMode {
     }
 }
 
+/// A half-open `[start, end)` byte range within a file's content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ByteRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl ByteRange {
+    #[must_use]
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+
+    #[must_use]
+    pub fn len(self) -> usize {
+        self.end - self.start
+    }
+
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self.start == self.end
+    }
+
+    #[must_use]
+    pub fn as_range(self) -> std::ops::Range<usize> {
+        self.start..self.end
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MatchInfo {
-    pub byte_offset_start: usize,
-    pub byte_offset_end: usize,
+    pub byte_range: ByteRange,
     pub skip: bool,
-
     /// Captured groups from regex matches. Index 0 = full match ($0), 1..=9 = groups.
     /// Empty in non-regex modes.
     pub captures: Box<[Box<str>]>,
@@ -71,10 +98,9 @@ pub struct MatchInfo {
 
 impl MatchInfo {
     #[must_use]
-    pub fn new(byte_start: usize, byte_end: usize, captures: Box<[Box<str>]>) -> Self {
+    pub fn new(byte_range: ByteRange, captures: Box<[Box<str>]>) -> Self {
         Self {
-            byte_offset_start: byte_start,
-            byte_offset_end: byte_end,
+            byte_range,
             skip: false,
             captures,
         }

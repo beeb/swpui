@@ -428,14 +428,13 @@ impl<'a> PreviewBuilder<'a> {
 #[cfg(test)]
 mod tests {
     use crate::preview::data::{PreviewData, PreviewMatch, PreviewMatchKind};
-    use crate::types::{MatchInfo, MatchMode};
+    use crate::types::{ByteRange, MatchInfo, MatchMode};
 
     use super::*;
 
     fn make_info() -> MatchInfo {
         MatchInfo {
-            byte_offset_start: 0,
-            byte_offset_end: 5,
+            byte_range: ByteRange::new(0, 5),
             skip: false,
             captures: Box::new([]),
         }
@@ -545,8 +544,7 @@ mod tests {
         // file write does. Before the shared-pipeline refactor the preview rendered
         // "new_thing" because it skipped word-boundary expansion.
         let matches = vec![MatchInfo {
-            byte_offset_start: 0,
-            byte_offset_end: 3,
+            byte_range: ByteRange::new(0, 3),
             skip: false,
             captures: Box::new([]),
         }];

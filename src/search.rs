@@ -20,7 +20,7 @@ use tracing::debug;
 use crate::{
     hash::FileHash,
     path::ResponsivePath,
-    types::{MatchInfo, MatchMode, Options},
+    types::{ByteRange, MatchInfo, MatchMode, Options},
 };
 
 pub struct SearchRequest {
@@ -330,7 +330,7 @@ pub fn find_matches_in_content(
         if match_count.load(Ordering::Relaxed) >= max_matches {
             break;
         }
-        matches.push(MatchInfo::new(raw.start, raw.end, raw.captures));
+        matches.push(MatchInfo::new(raw.range, raw.captures));
         match_count.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -339,8 +339,7 @@ pub fn find_matches_in_content(
 
 /// A match's byte range plus any captured groups (empty for non-regex patterns).
 struct RawMatch {
-    start: usize,
-    end: usize,
+    range: ByteRange,
     captures: Box<[Box<str>]>,
 }
 
@@ -349,8 +348,7 @@ fn find_byte_ranges(content: &str, pattern: &Pattern) -> Vec<RawMatch> {
         Pattern::Empty => Vec::new(),
         Pattern::Literal(pattern) => memchr::memmem::find_iter(content.as_bytes(), pattern)
             .map(|pos| RawMatch {
-                start: pos,
-                end: pos + pattern.len(),
+                range: ByteRange::new(pos, pos + pattern.len()),
                 captures: Box::new([]),
             })
             .collect(),
@@ -365,8 +363,7 @@ fn find_byte_ranges(content: &str, pattern: &Pattern) -> Vec<RawMatch> {
                     })
                     .collect();
                 Some(RawMatch {
-                    start: full.start(),
-                    end: full.end(),
+                    range: ByteRange::new(full.start(), full.end()),
                     captures: groups,
                 })
             })
@@ -374,8 +371,7 @@ fn find_byte_ranges(content: &str, pattern: &Pattern) -> Vec<RawMatch> {
         Pattern::Regex(re) => re
             .find_iter(content)
             .map(|m| RawMatch {
-                start: m.start(),
-                end: m.end(),
+                range: ByteRange::new(m.start(), m.end()),
                 captures: Box::new([]),
             })
             .collect(),
@@ -408,14 +404,12 @@ mod tests {
             responsive_path: None,
             matches: vec![
                 MatchInfo {
-                    byte_offset_start: 0,
-                    byte_offset_end: 3,
+                    byte_range: ByteRange::new(0, 3),
                     skip: false,
                     captures: Box::new([]),
                 },
                 MatchInfo {
-                    byte_offset_start: 10,
-                    byte_offset_end: 13,
+                    byte_range: ByteRange::new(10, 13),
                     skip: true,
                     captures: Box::new([]),
                 },
@@ -438,11 +432,11 @@ mod tests {
         .unwrap();
         assert_eq!(matches.len(), 2);
         assert_eq!(
-            &content[matches[0].byte_offset_start..matches[0].byte_offset_end],
+            &content[matches[0].byte_range.start..matches[0].byte_range.end],
             "foo"
         );
         assert_eq!(
-            &content[matches[1].byte_offset_start..matches[1].byte_offset_end],
+            &content[matches[1].byte_range.start..matches[1].byte_range.end],
             "foo"
         );
     }
@@ -459,11 +453,11 @@ mod tests {
         .unwrap();
         assert_eq!(matches.len(), 2);
         assert_eq!(
-            &content[matches[0].byte_offset_start..matches[0].byte_offset_end],
+            &content[matches[0].byte_range.start..matches[0].byte_range.end],
             "hello world"
         );
         assert_eq!(
-            &content[matches[1].byte_offset_start..matches[1].byte_offset_end],
+            &content[matches[1].byte_range.start..matches[1].byte_range.end],
             "hello rust"
         );
     }
@@ -482,7 +476,7 @@ mod tests {
         .unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(
-            &content[matches[0].byte_offset_start..matches[0].byte_offset_end],
+            &content[matches[0].byte_range.start..matches[0].byte_range.end],
             "foo bar"
         );
     }
@@ -515,8 +509,8 @@ mod tests {
             usize::MAX,
         )
         .unwrap();
-        assert_eq!(matches[0].byte_offset_start, 6);
-        assert_eq!(matches[0].byte_offset_end, 9);
+        assert_eq!(matches[0].byte_range.start, 6);
+        assert_eq!(matches[0].byte_range.end, 9);
     }
 
     #[test]

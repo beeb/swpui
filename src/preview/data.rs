@@ -1,6 +1,6 @@
 use std::{borrow::Cow, ops::Range};
 
-use crate::types::MatchInfo;
+use crate::types::{ByteRange, MatchInfo};
 
 /// Number of context lines kept on either side of a match.
 pub const CONTEXT_LINES: usize = 2;
@@ -20,7 +20,7 @@ pub struct PreviewData {
 impl PreviewData {
     /// Build rich preview data for a file given its content and the byte ranges of each match.
     #[must_use]
-    pub fn new(content: &str, byte_ranges: &[(usize, usize)]) -> Self {
+    pub fn new(content: &str, byte_ranges: &[ByteRange]) -> Self {
         let mut line_starts: Vec<usize> = std::iter::once(0)
             .chain(memchr::memchr_iter(b'\n', content.as_bytes()).map(|i| i + 1))
             .collect();
@@ -32,21 +32,14 @@ impl PreviewData {
         let mut matches = Vec::with_capacity(byte_ranges.len());
         let mut line_idx = 0;
         let mut size = 0;
-        for &(byte_start, byte_end) in byte_ranges {
+        for &range in byte_ranges {
             while line_starts
                 .get(line_idx + 1)
-                .is_some_and(|&offset| offset <= byte_start)
+                .is_some_and(|&offset| offset <= range.start)
             {
                 line_idx += 1;
             }
-            let pm = PreviewMatch::new(
-                content,
-                &line_starts,
-                num_lines,
-                byte_start,
-                byte_end,
-                line_idx,
-            );
+            let pm = PreviewMatch::new(content, &line_starts, num_lines, range, line_idx);
             size += pm.size();
             matches.push(pm);
         }
@@ -71,8 +64,7 @@ impl PreviewMatch {
         content: &str,
         line_starts: &[usize],
         num_lines: usize,
-        byte_start: usize,
-        byte_end: usize,
+        range: ByteRange,
         line_idx: usize,
     ) -> PreviewMatch {
         let get_line = |idx: usize| -> &str {
@@ -87,12 +79,12 @@ impl PreviewMatch {
             .map(|i| ContextLine::from_content(content, line_starts, i))
             .collect();
 
-        let line_idx_end = if byte_end - byte_start > 1024 {
-            line_starts.partition_point(|&s| s < byte_end) - 1
+        let line_idx_end = if range.len() > 1024 {
+            line_starts.partition_point(|&s| s < range.end) - 1
         } else {
             line_starts[line_idx + 1..]
                 .iter()
-                .position(|&s| s >= byte_end)
+                .position(|&s| s >= range.end)
                 .map_or(num_lines - 1, |pos| line_idx + pos)
         };
 
@@ -107,8 +99,8 @@ impl PreviewMatch {
         let last_line_str = get_line(line_idx_end);
         // clamp to the trimmed line length so a match landing on `\r` (e.g. from
         // a multiline regex) doesn't produce an out-of-range slice index downstream
-        let mut match_col_start = (byte_start - line_start_byte).min(first_line_str.len());
-        let mut match_col_end = (byte_end - last_line_byte).min(last_line_str.len());
+        let mut match_col_start = (range.start - line_start_byte).min(first_line_str.len());
+        let mut match_col_end = (range.end - last_line_byte).min(last_line_str.len());
 
         let kind = if line_idx_end == line_idx {
             let (line_content, new_start, new_end) =
@@ -303,7 +295,7 @@ mod tests {
     #[test]
     fn build_preview_single_line() {
         let content = "hello world\n";
-        let data = PreviewData::new(content, &[(0, 5)]);
+        let data = PreviewData::new(content, &[ByteRange::new(0, 5)]);
         assert_eq!(data.matches.len(), 1);
         let m = &data.matches[0];
         assert_eq!(m.match_col_start, 0);
@@ -318,7 +310,7 @@ mod tests {
     fn build_preview_context_before_and_after() {
         let content = "a\nb\nc\nmatch\nd\ne\nf\n";
         let pos = content.find("match").unwrap();
-        let data = PreviewData::new(content, &[(pos, pos + 5)]);
+        let data = PreviewData::new(content, &[ByteRange::new(pos, pos + 5)]);
         let m = &data.matches[0];
         assert_eq!(m.context_before.len(), CONTEXT_LINES);
         assert_eq!(&*m.context_before[0].content, "b");
@@ -330,7 +322,7 @@ mod tests {
     #[test]
     fn build_preview_multiline_match() {
         let content = "foo\nbar\nbaz\n";
-        let data = PreviewData::new(content, &[(0, 7)]);
+        let data = PreviewData::new(content, &[ByteRange::new(0, 7)]);
         let m = &data.matches[0];
         let PreviewMatchKind::MultiLine {
             line_number_start,
@@ -349,7 +341,7 @@ mod tests {
         let suffix = "b".repeat(200);
         let content = format!("{prefix}NEEDLE{suffix}\n");
         let pos = content.find("NEEDLE").unwrap();
-        let data = PreviewData::new(&content, &[(pos, pos + 6)]);
+        let data = PreviewData::new(&content, &[ByteRange::new(pos, pos + 6)]);
         let m = &data.matches[0];
         let PreviewMatchKind::SingleLine { line_content, .. } = &m.kind else {
             panic!("expected SingleLine");
@@ -364,7 +356,7 @@ mod tests {
     fn build_preview_strips_crlf_line_endings() {
         let content = "a\r\nb\r\nc\r\nmatch\r\nd\r\ne\r\n";
         let pos = content.find("match").unwrap();
-        let data = PreviewData::new(content, &[(pos, pos + 5)]);
+        let data = PreviewData::new(content, &[ByteRange::new(pos, pos + 5)]);
         let m = &data.matches[0];
 
         assert_eq!(&*m.context_before[0].content, "b");
@@ -387,7 +379,7 @@ mod tests {
         let content = "foo bar\r\nbaz\r\n";
         let lf_byte = 8;
         let baz_end = 12;
-        let data = PreviewData::new(content, &[(lf_byte, baz_end)]);
+        let data = PreviewData::new(content, &[ByteRange::new(lf_byte, baz_end)]);
         let m = &data.matches[0];
         let PreviewMatchKind::MultiLine { matched_lines, .. } = &m.kind else {
             panic!("expected MultiLine");
@@ -398,7 +390,7 @@ mod tests {
     #[test]
     fn build_preview_strips_crlf_in_multiline_match() {
         let content = "foo\r\nbar\r\nbaz\r\n";
-        let data = PreviewData::new(content, &[(0, 8)]);
+        let data = PreviewData::new(content, &[ByteRange::new(0, 8)]);
         let m = &data.matches[0];
         let PreviewMatchKind::MultiLine { matched_lines, .. } = &m.kind else {
             panic!("expected MultiLine");
@@ -411,7 +403,7 @@ mod tests {
     #[test]
     fn build_preview_size_bytes_nonzero() {
         let content = "hello world\n";
-        let data = PreviewData::new(content, &[(0, 5)]);
+        let data = PreviewData::new(content, &[ByteRange::new(0, 5)]);
         assert!(data.size > 0);
     }
 
@@ -424,8 +416,7 @@ mod tests {
 
     fn make_info() -> MatchInfo {
         MatchInfo {
-            byte_offset_start: 0,
-            byte_offset_end: 5,
+            byte_range: ByteRange::new(0, 5),
             skip: false,
             captures: Box::new([]),
         }

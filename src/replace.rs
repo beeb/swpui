@@ -210,10 +210,10 @@ pub fn apply_replacements(
     }
 
     // sort by byte offset in descending order so we can replace from the end
-    active.sort_unstable_by_key(|m| Reverse(m.byte_offset_start));
+    active.sort_unstable_by_key(|m| Reverse(m.byte_range.start));
 
     for m in active {
-        let match_range = m.byte_offset_start..m.byte_offset_end;
+        let match_range = m.byte_range.as_range();
         let repl = Replacement::new(m, &result, match_range.clone(), replacement, mode).compute();
         result.replace_range(match_range, &repl);
     }
@@ -223,10 +223,10 @@ pub fn apply_replacements(
 #[must_use]
 pub fn has_overlapping_matches(matches: &[MatchInfo]) -> bool {
     let mut active: Vec<&MatchInfo> = matches.iter().filter(|m| !m.skip).collect();
-    active.sort_unstable_by_key(|m| m.byte_offset_start);
+    active.sort_unstable_by_key(|m| m.byte_range.start);
     active
         .array_windows()
-        .any(|[w0, w1]| w0.byte_offset_end > w1.byte_offset_start)
+        .any(|[w0, w1]| w0.byte_range.end > w1.byte_range.start)
 }
 
 pub fn write_file(path: impl AsRef<Path>, content: &str) -> anyhow::Result<()> {
@@ -297,11 +297,11 @@ mod tests {
     use std::fs;
 
     use super::*;
+    use crate::types::ByteRange;
 
     fn make_match(start: usize, end: usize) -> MatchInfo {
         MatchInfo {
-            byte_offset_start: start,
-            byte_offset_end: end,
+            byte_range: ByteRange::new(start, end),
             skip: false,
             captures: Box::new([]),
         }

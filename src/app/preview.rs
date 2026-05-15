@@ -4,6 +4,7 @@ use crate::{
     app::App,
     prelude::OrPanic as _,
     preview::{PreviewCommand, PreviewRequest, PreviewResult},
+    types::ByteRange,
 };
 
 impl App {
@@ -43,11 +44,7 @@ impl App {
             let Some(fm) = self.results.iter().find(|fm| &fm.path == slot) else {
                 continue;
             };
-            let byte_ranges: Box<[(usize, usize)]> = fm
-                .matches
-                .iter()
-                .map(|m| (m.byte_offset_start, m.byte_offset_end))
-                .collect();
+            let byte_ranges: Box<[ByteRange]> = fm.matches.iter().map(|m| m.byte_range).collect();
             self.preview_generation += 1;
             let _ = self
                 .preview_cmd_tx

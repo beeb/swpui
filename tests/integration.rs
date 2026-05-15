@@ -103,10 +103,7 @@ fn multiline_search_and_replace_workflow() {
     )
     .unwrap();
     assert_eq!(matches.len(), 1);
-    assert_eq!(
-        &content[matches[0].byte_offset_start..matches[0].byte_offset_end],
-        "bar\nbaz"
-    );
+    assert_eq!(&content[matches[0].byte_range.as_range()], "bar\nbaz");
 
     let replacement = effective_replacement(r"BAR\nBAZ", MatchMode::RegexMultiline);
     let new_content =

@@ -10,7 +10,7 @@ use crate::{
     prelude::OrPanic as _,
     preview::{cache::PreviewCache, data::PreviewData},
     search::{MAX_MATCHES, Pattern, find_matches_in_content},
-    types::{MatchInfo, MatchMode},
+    types::{ByteRange, MatchInfo, MatchMode},
 };
 
 /// Number of workers is based on the fact that the wanted set has 3 items at most
@@ -24,7 +24,7 @@ pub type WantedSet = Arc<RwLock<[Option<PathBuf>; NUM_WORKERS]>>;
 #[derive(Debug, Clone)]
 pub struct PreviewRequest {
     pub path: PathBuf,
-    pub byte_ranges: Box<[(usize, usize)]>,
+    pub byte_ranges: Box<[ByteRange]>,
     pub hash: FileHash,
     pub pattern: String,
     pub mode: MatchMode,
@@ -224,10 +224,7 @@ fn handle_request(
             });
             return;
         }
-        let byte_ranges: Vec<(usize, usize)> = new_matches
-            .iter()
-            .map(|m| (m.byte_offset_start, m.byte_offset_end))
-            .collect();
+        let byte_ranges: Vec<ByteRange> = new_matches.iter().map(|m| m.byte_range).collect();
         let data = Arc::new(PreviewData::new(&content, &byte_ranges));
         {
             let mut cache = cache.lock().or_panic("poisoned lock");
@@ -314,7 +311,7 @@ mod tests {
         cmd_tx
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
-                byte_ranges: vec![(0, 5)].into(),
+                byte_ranges: vec![ByteRange::new(0, 5)].into(),
                 hash,
                 pattern: "hello".to_string(),
                 mode: MatchMode::Literal,
@@ -347,7 +344,7 @@ mod tests {
         cmd_tx
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
-                byte_ranges: vec![(0, 5)].into(),
+                byte_ranges: vec![ByteRange::new(0, 5)].into(),
                 hash,
                 pattern: "hello".to_string(),
                 mode: MatchMode::Literal,
@@ -373,7 +370,7 @@ mod tests {
         cmd_tx
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
-                byte_ranges: vec![(0, 3)].into(),
+                byte_ranges: vec![ByteRange::new(0, 3)].into(),
                 hash: stale_hash,
                 pattern: "foo".to_string(),
                 mode: MatchMode::Literal,
@@ -432,7 +429,7 @@ mod tests {
         cmd_tx
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
-                byte_ranges: vec![(0, 5)].into(),
+                byte_ranges: vec![ByteRange::new(0, 5)].into(),
                 hash: FileHash::default(),
                 pattern: "x".to_string(),
                 mode: MatchMode::Literal,
@@ -461,7 +458,7 @@ mod tests {
         cmd_tx
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
-                byte_ranges: vec![(0, 3)].into(),
+                byte_ranges: vec![ByteRange::new(0, 3)].into(),
                 hash: original_hash,
                 pattern: "foo".to_string(),
                 mode: MatchMode::Literal,
@@ -481,7 +478,7 @@ mod tests {
         cmd_tx
             .send(PreviewCommand::Request(PreviewRequest {
                 path: path.clone(),
-                byte_ranges: vec![(0, 3)].into(),
+                byte_ranges: vec![ByteRange::new(0, 3)].into(),
                 hash: original_hash,
                 pattern: "foo".to_string(),
                 mode: MatchMode::Literal,
