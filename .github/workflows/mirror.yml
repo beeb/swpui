@@ -21,11 +21,18 @@ jobs:
         env:
           MIRROR_SSH_KEY: ${{ secrets.MIRROR_SSH_KEY }}
         run: |
+          set -euo pipefail
+          : "${MIRROR_SSH_KEY:?MIRROR_SSH_KEY secret is not set}"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$MIRROR_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan codeberg.org >> ~/.ssh/known_hosts
+          for i in 1 2 3; do
+            ssh-keyscan -T 10 codeberg.org >> ~/.ssh/known_hosts && break
+            echo "ssh-keyscan attempt $i failed, retrying..." >&2
+            sleep 2
+          done
+          test -s ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
       - name: Push to Codeberg
