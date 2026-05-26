@@ -121,6 +121,24 @@ In regex mode, the replacement template can reference capture groups from the se
 
 For example, searching for `(\w+)_(\w+)` and replacing with `$2_$1` swaps the two halves of each `snake_case` pair.
 
+## Configuration
+
+Default values for the options can be persisted in a `swpui.toml` (or `.swpui.toml`) file. On startup, `swpui` looks for
+them in:
+
+1. The user config directory (`~/.config/swpui/` on Linux and macOS, `%APPDATA%\beeb\swpui\` on Windows).
+2. Each directory from the filesystem root down to the directory where `swpui` was launched.
+
+Settings closer to the working directory override settings from parents, and any field omitted from a file falls back to
+the value from the next layer up, ultimately defaulting to the built-in defaults shown below:
+
+```toml
+[options]
+match-mode = "case-aware" # case-aware | literal | regex | regex-multiline
+include-hidden = true
+include-gitignored = false
+```
+
 ### Custom ignore file
 
 In addition to `.gitignore` and `.ignore` files, `swpui` honors `.swpignore` files. These use the same
