@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.8.0] - 2026-05-26
+
+### Added
+
+- **(config)** add support for config files ([#48](https://github.com/beeb/swpui/pull/48)) - ([9cf0a05](https://github.com/beeb/swpui/commit/9cf0a05dbbfbb8ba48ffe55a5a7d68fdfa9b72fb))
+
+- **(mirror)** add retries for ssh-keyscan ([#49](https://github.com/beeb/swpui/pull/49)) - ([fcef86e](https://github.com/beeb/swpui/commit/fcef86e8f914865f8d36eea8c3adf1090ab03b53))
+
+- **(search)** add support for .swpignore ([#47](https://github.com/beeb/swpui/pull/47)) - ([5194ede](https://github.com/beeb/swpui/commit/5194edeca5165b3557f19222abf69a7c03f3c824))
+
+
+-  add mirror to codeberg ([#43](https://github.com/beeb/swpui/pull/43)) - ([fbfe9fc](https://github.com/beeb/swpui/commit/fbfe9fc22664fb8ada22bf97e559cac84557fb29))
+
+### Changed
+
+
+-  restrict permissions ([#44](https://github.com/beeb/swpui/pull/44)) - ([1b74109](https://github.com/beeb/swpui/commit/1b74109a402dd54c8c34da92ebab31a45bf3924d))
+-  check msrv ([#45](https://github.com/beeb/swpui/pull/45)) - ([3bebff1](https://github.com/beeb/swpui/commit/3bebff12c14a8d137e8b3a9601d4bed6029e446f))
+-  use byte range type ([#46](https://github.com/beeb/swpui/pull/46)) - ([dfa0a03](https://github.com/beeb/swpui/commit/dfa0a032e82ac205ee110cf904dacabfcf199723))
+
+### Documentation
+
+
+-  update screenshot ([#41](https://github.com/beeb/swpui/pull/41)) - ([fb17c22](https://github.com/beeb/swpui/commit/fb17c228eb563672b21417d229ca003de87555a5))
+
+
+
+
+**Full Changelog**: [0.7.2...0.8.0](https://github.com/beeb/swpui/compare/v0.7.2...v0.8.0)
+
+
 ## [0.7.2] - 2026-05-09
 
 ### Fixed
