@@ -121,6 +121,12 @@ In regex mode, the replacement template can reference capture groups from the se
 
 For example, searching for `(\w+)_(\w+)` and replacing with `$2_$1` swaps the two halves of each `snake_case` pair.
 
+### Custom ignore file
+
+In addition to `.gitignore` and `.ignore` files, `swpui` honors `.swpignore` files. These use the same
+[gitignore](https://git-scm.com/docs/gitignore) syntax and are scoped per-directory: a `.swpignore` placed in any
+directory applies to that directory and its descendants.
+
 ## Features
 
 - [x] Case-aware replacement
@@ -131,6 +137,7 @@ For example, searching for `(\w+)_(\w+)` and replacing with `$2_$1` swaps the tw
 - [x] Capture groups replacement
 - [x] Toggle hidden files
 - [x] Toggle gitignored files
+- [x] Custom `.swpignore` files
 - [ ] Focus pane with mouse
 - [ ] Glob to include/exclude files
 

@@ -196,6 +196,7 @@ impl SearchWorker {
             .git_exclude(!include_gitignored)
             .ignore(!include_gitignored)
             .parents(!include_gitignored)
+            .add_custom_ignore_filename(".swpignore")
             .threads(threads)
             .build_parallel();
         let file_count = &AtomicUsize::new(0);
@@ -554,6 +555,50 @@ mod tests {
 
         drop(cmd_tx);
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn swpignore() {
+        let dir = create_test_dir(&[
+            ("kept.txt", "needle\n"),
+            ("excluded.txt", "needle\n"),
+            (".swpignore", "excluded.txt\n"),
+        ]);
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker =
+            SearchWorker::new(dir.path().to_path_buf(), cmd_rx, result_tx, cancelled).unwrap();
+        let handle = thread::spawn(move || worker.run(Options::default().into()));
+
+        cmd_tx
+            .send(WorkerCommand::Search(SearchRequest {
+                pattern: "needle".to_string(),
+                mode: MatchMode::Literal,
+                generation: 1,
+            }))
+            .unwrap();
+
+        let mut matched_paths = Vec::new();
+        loop {
+            match result_rx.recv_timeout(Duration::from_secs(2)).unwrap() {
+                SearchResult::FileMatches { file_matches, .. } => {
+                    matched_paths.push(file_matches.path);
+                }
+                SearchResult::Complete { .. } => break,
+                SearchResult::FileListReady { .. } => {}
+                SearchResult::Error { message, .. } => panic!("unexpected error: {message}"),
+            }
+        }
+        drop(cmd_tx);
+        handle.join().unwrap();
+
+        let names: Vec<_> = matched_paths
+            .iter()
+            .filter_map(|p| p.file_name().and_then(|n| n.to_str()))
+            .collect();
+        assert!(names.contains(&"kept.txt"));
+        assert!(!names.contains(&"excluded.txt"));
     }
 
     #[test]
