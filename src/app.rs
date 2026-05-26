@@ -12,10 +12,11 @@ use ratatui::{
 };
 
 use crate::{
+    config::{ConfigResult, Options},
     preview::{PreviewCommand, PreviewResult, PreviewWorker, WantedSet},
     search::{FileMatches, SearchResult, SearchWorker, WorkerCommand},
     spinner::SpinnerState,
-    types::{Options, Pane},
+    types::Pane,
     ui::{self, preview::PreviewState},
 };
 
@@ -56,12 +57,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(root: PathBuf) -> anyhow::Result<Self> {
+    pub fn new(root: PathBuf, config: ConfigResult) -> anyhow::Result<Self> {
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
 
-        let options = Options::default();
+        let ConfigResult { options, warning } = config;
         let worker = SearchWorker::new(root.clone(), cmd_rx, result_tx, Arc::clone(&cancelled))?;
         thread::spawn(move || worker.run(options.into()));
 
@@ -83,7 +84,7 @@ impl App {
             results: Vec::new(),
             focused_pane: Pane::default(),
             file_list: ListState::default(),
-            status_message: None,
+            status_message: warning,
             searching: false,
             truncated: false,
             spinner: SpinnerState::default(),

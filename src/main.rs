@@ -14,6 +14,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let root = env::current_dir()?;
-    ratatui::run(|term| App::new(root)?.run(term))?;
+    let config = swpui::config::Loader::load(&root);
+    ratatui::run(|term| App::new(root, config)?.run(term))?;
     Ok(())
 }

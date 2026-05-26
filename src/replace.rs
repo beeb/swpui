@@ -2,7 +2,7 @@ use std::{borrow::Cow, cmp::Reverse, io::Write as _, ops::Range, path::Path};
 
 use convert_case::{Case, Casing as _};
 
-use crate::types::{MatchInfo, MatchMode};
+use crate::{config::MatchMode, types::MatchInfo};
 
 /// Cases to detect, ordered from least specific to most specific.
 const CASES: [Case<'static>; 6] = [

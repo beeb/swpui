@@ -1,63 +1,3 @@
-use std::fmt;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Options {
-    pub match_mode: MatchMode,
-    pub include_hidden: bool,
-    pub include_gitignored: bool,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            match_mode: MatchMode::default(),
-            include_hidden: true,
-            include_gitignored: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum MatchMode {
-    #[default]
-    CaseAware,
-    Literal,
-    Regex,
-    RegexMultiline,
-}
-
-impl MatchMode {
-    #[must_use]
-    pub fn toggle(self) -> Self {
-        match self {
-            Self::CaseAware => Self::Literal,
-            Self::Literal => Self::Regex,
-            Self::Regex => Self::RegexMultiline,
-            Self::RegexMultiline => Self::CaseAware,
-        }
-    }
-
-    #[must_use]
-    pub fn is_regex(&self) -> bool {
-        match self {
-            MatchMode::CaseAware | MatchMode::Literal => false,
-            MatchMode::Regex | MatchMode::RegexMultiline => true,
-        }
-    }
-}
-
-impl fmt::Display for MatchMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let disp = match self {
-            MatchMode::CaseAware => "case-aware",
-            MatchMode::Literal => "literal",
-            MatchMode::Regex => "regex",
-            MatchMode::RegexMultiline => "regex multiline",
-        };
-        f.write_str(disp)
-    }
-}
-
 /// A half-open `[start, end)` byte range within a file's content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ByteRange {
@@ -167,19 +107,6 @@ impl Pane {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn match_mode_toggle() {
-        let mut mode = MatchMode::CaseAware;
-        mode = mode.toggle();
-        assert_eq!(mode, MatchMode::Literal);
-        mode = mode.toggle();
-        assert_eq!(mode, MatchMode::Regex);
-        mode = mode.toggle();
-        assert_eq!(mode, MatchMode::RegexMultiline);
-        mode = mode.toggle();
-        assert_eq!(mode, MatchMode::CaseAware);
-    }
 
     #[test]
     fn pane_cycle_forward() {

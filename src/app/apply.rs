@@ -1,6 +1,6 @@
 use std::{fs, slice};
 
-use crate::{app::App, replace, search::FileMatches, types::MatchMode};
+use crate::{app::App, config::MatchMode, replace, search::FileMatches};
 
 impl App {
     pub fn toggle_skip_file(&mut self) {

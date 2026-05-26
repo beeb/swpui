@@ -18,11 +18,8 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
-    preview::data::PreviewData,
-    search::FileMatches,
-    types::{MatchMode, Pane},
-    ui::preview::builder::PreviewBuilder,
-    utils::trim_start_to_width,
+    config::MatchMode, preview::data::PreviewData, search::FileMatches, types::Pane,
+    ui::preview::builder::PreviewBuilder, utils::trim_start_to_width,
 };
 
 /// Per-frame mutable state for the [`Preview`] widget.

@@ -6,9 +6,10 @@ use ratatui::{
 };
 
 use crate::{
+    config::MatchMode,
     preview::data::{CONTEXT_LINES, ContextLine, PreviewData, PreviewMatch, PreviewMatchKind},
     replace::Replacement,
-    types::{MatchInfo, MatchMode},
+    types::MatchInfo,
     utils::TruncatedLine,
 };
 
@@ -427,8 +428,9 @@ impl<'a> PreviewBuilder<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::MatchMode;
     use crate::preview::data::{PreviewData, PreviewMatch, PreviewMatchKind};
-    use crate::types::{ByteRange, MatchInfo, MatchMode};
+    use crate::types::{ByteRange, MatchInfo};
 
     use super::*;
 

@@ -18,9 +18,10 @@ use regex::Regex;
 use tracing::debug;
 
 use crate::{
+    config::{MatchMode, Options},
     hash::FileHash,
     path::ResponsivePath,
-    types::{ByteRange, MatchInfo, MatchMode, Options},
+    types::{ByteRange, MatchInfo},
 };
 
 pub struct SearchRequest {
