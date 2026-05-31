@@ -13,6 +13,11 @@
       src="https://img.shields.io/crates/v/swpui.svg?style=flat&color=e37602&logo=rust"
       height="20"
   /></a>
+  <a href="https://github.com/NixOS/nixpkgs/blob/nixpkgs-unstable/pkgs/by-name/sw/swpui/package.nix#L22"><img
+      alt="nixpkgs"
+      src="https://img.shields.io/badge/nixpkgs-swpui-5277C3?style=flat&logo=nixos&logoColor=white"
+      height="20"
+  /></a>
 </div>
 
 `swpui` (pronounced "swap UI") is a TUI utility to search and replace text, with a focus on ergonomics, speed and
@@ -34,16 +39,16 @@ cargo install swpui
 cargo binstall swpui
 ```
 
-#### Via Nix flake
+#### Via Nix (`nixpkgs-unstable`)
 
 ```bash
-nix profile install github:beeb/swpui
+nix profile install nixpkgs#swpui
 ```
 
 Or run without installing:
 
 ```bash
-nix run github:beeb/swpui
+nix run nixpkgs#swpui
 ```
 
 #### Pre-built binaries and install script
