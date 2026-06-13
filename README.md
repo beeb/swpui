@@ -91,7 +91,7 @@ $ swp
 | `j` / `Down`            | Next file                         |
 | `k` / `Up`              | Previous file                     |
 | `l` / `Enter` / `Right` | Focus preview pane                |
-| `s`                     | Skip all matches in file (toggle) |
+| `s` / `Space`           | Skip all matches in file (toggle) |
 | `f`                     | Apply replacement to file         |
 | `a`                     | Apply replacement to all files    |
 | `q`                     | Quit                              |

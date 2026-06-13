@@ -232,7 +232,7 @@ fn render_status_bar(app: &App, frame: &mut Frame, status_area: Rect, hints_area
             "C-r/A-r: mode | C-o/A-o: options | esc: file list | tab/S-tab: cycle | q/C-c: quit"
         }
         Pane::FileList => {
-            "s: skip file | f: apply file | a: apply all | j/k: navigate | l/enter: preview | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"
+            "space/s: skip file | f: apply file | a: apply all | j/k: navigate | l/enter: preview | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"
         }
         Pane::Preview => {
             "space: skip | enter: apply match | s: skip file | f: apply file | j/k: navigate | h/esc: back | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"

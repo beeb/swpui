@@ -156,6 +156,10 @@ impl App {
                 self.focused_pane = Pane::Preview;
                 return;
             }
+            KeyCode::Char(' ') => {
+                self.toggle_skip_file();
+                return;
+            }
             _ => {}
         }
         self.handle_non_input_key(key);
