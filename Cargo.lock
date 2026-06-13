@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "swpui"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "convert_case 0.11.0",

@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.9.0] - 2026-06-13
+
+### Added
+
+
+-  support space to toggle file skip in file pane ([#53](https://github.com/beeb/swpui/pull/53)) - ([e3c2720](https://github.com/beeb/swpui/commit/e3c2720e4e722a83c86ba410f73737d5ff4da066))
+-  support enter to confirm replace-all ([#54](https://github.com/beeb/swpui/pull/54)) - ([48db4a3](https://github.com/beeb/swpui/commit/48db4a315c406aafd82b0af20572467dc977dac8))
+-  mouse support ([#55](https://github.com/beeb/swpui/pull/55)) - ([1bc54c0](https://github.com/beeb/swpui/commit/1bc54c0c457f81a45c511fe893507abe70056ebc))
+
+### Changed
+
+
+-  use ratatui's CellWidth instead of unicode-width ([#52](https://github.com/beeb/swpui/pull/52)) - ([64caea9](https://github.com/beeb/swpui/commit/64caea9fc7cefe0b72f2851ea1751c4d10a4dd77))
+
+### Documentation
+
+
+-  update readme ([#50](https://github.com/beeb/swpui/pull/50)) - ([ba43612](https://github.com/beeb/swpui/commit/ba43612b7c18f0795a051be08cceda372a847288))
+
+
+
+
+**Full Changelog**: [0.8.0...0.9.0](https://github.com/beeb/swpui/compare/v0.8.0...v0.9.0)
+
+
 ## [0.8.0] - 2026-05-26
 
 ### Added
