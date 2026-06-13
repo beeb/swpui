@@ -8,7 +8,12 @@ use ratatui::{
     widgets::{Block, Clear, Paragraph, StatefulWidget as _},
 };
 
-use crate::{app::App, replace::effective_replacement, types::Pane, ui::preview::Preview};
+use crate::{
+    app::App,
+    replace::effective_replacement,
+    types::{Pane, PaneAreas},
+    ui::preview::Preview,
+};
 
 mod file_list;
 pub mod preview;
@@ -39,8 +44,17 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     // left column: input area + file list
     let [input_area, file_area] =
         Layout::vertical([Constraint::Length(6), Constraint::Fill(1)]).areas(left);
+    let [search_area, replace_area] =
+        Layout::vertical([Constraint::Length(3), Constraint::Length(3)]).areas(input_area);
 
-    render_input_area(app, frame, input_area);
+    app.pane_areas = PaneAreas {
+        search_input: search_area,
+        replace_input: replace_area,
+        file_list: file_area,
+        preview: right,
+    };
+
+    render_input_area(app, frame, search_area, replace_area);
     file_list::render(app, frame, file_area);
     render_preview(app, frame, right);
     render_status_bar(app, frame, status_area, hints_area);
@@ -75,10 +89,7 @@ fn focused_border_style(pane: Pane, current: Pane) -> Style {
     }
 }
 
-fn render_input_area(app: &mut App, frame: &mut Frame, area: Rect) {
-    let [search_area, replace_area] =
-        Layout::vertical([Constraint::Length(3), Constraint::Length(3)]).areas(area);
-
+fn render_input_area(app: &mut App, frame: &mut Frame, search_area: Rect, replace_area: Rect) {
     let mode_label = format!(
         "\u{2500}[{}]\u{2500}Search ({})",
         Pane::SearchInput.digit(),

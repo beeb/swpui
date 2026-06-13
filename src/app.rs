@@ -1,4 +1,5 @@
 use std::{
+    io::stdout,
     path::PathBuf,
     sync::{Arc, RwLock, atomic::AtomicBool, mpsc},
     thread,
@@ -8,7 +9,10 @@ use std::{
 use rat_widget::{list::ListState, text_input::TextInputState};
 use ratatui::{
     DefaultTerminal, Frame,
-    crossterm::event::{self, Event, KeyEventKind},
+    crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
+        execute,
+    },
 };
 
 use crate::{
@@ -16,7 +20,7 @@ use crate::{
     preview::{PreviewCommand, PreviewResult, PreviewWorker, WantedSet},
     search::{FileMatches, SearchResult, SearchWorker, WorkerCommand},
     spinner::SpinnerState,
-    types::Pane,
+    types::{Pane, PaneAreas},
     ui::{self, preview::PreviewState},
 };
 
@@ -26,6 +30,22 @@ pub mod preview;
 pub mod search;
 
 const POLL_TIMEOUT: Duration = Duration::from_millis(16);
+
+/// RAII guard that enables mouse capture for its lifetime and disables it on drop.
+struct MouseCapture;
+
+impl MouseCapture {
+    fn enable() -> anyhow::Result<Self> {
+        execute!(stdout(), EnableMouseCapture)?;
+        Ok(Self)
+    }
+}
+
+impl Drop for MouseCapture {
+    fn drop(&mut self) {
+        let _ = execute!(stdout(), DisableMouseCapture);
+    }
+}
 
 #[expect(clippy::struct_excessive_bools)]
 pub struct App {
@@ -37,6 +57,7 @@ pub struct App {
     pub preview: PreviewState,
     pub spinner: SpinnerState,
     pub focused_pane: Pane,
+    pub pane_areas: PaneAreas,
     pub status_message: Option<String>,
     pub searching: bool,
     pub truncated: bool,
@@ -83,6 +104,7 @@ impl App {
             options,
             results: Vec::new(),
             focused_pane: Pane::default(),
+            pane_areas: PaneAreas::default(),
             file_list: ListState::default(),
             status_message: warning,
             searching: false,
@@ -106,6 +128,7 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+        let _mouse = MouseCapture::enable()?;
         while !self.exit {
             terminal.draw(|frame| self.draw(frame))?;
             self.poll_events()?;
@@ -141,11 +164,12 @@ impl App {
     }
 
     fn poll_events(&mut self) -> anyhow::Result<()> {
-        if event::poll(POLL_TIMEOUT)?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            self.handle_key(key);
+        if event::poll(POLL_TIMEOUT)? {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => self.handle_key(key),
+                Event::Mouse(mouse) => self.handle_mouse(mouse),
+                _ => {}
+            }
         }
         Ok(())
     }

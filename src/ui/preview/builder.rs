@@ -137,6 +137,15 @@ impl From<MatchLine> for Line<'static> {
     }
 }
 
+/// Line layout of the preview
+pub struct Layout {
+    /// Total height of all matches
+    pub total_lines: usize,
+
+    /// Line range covered by each match
+    pub match_ranges: Vec<Range<usize>>,
+}
+
 pub struct PreviewBuilder<'a> {
     matches: &'a [MatchInfo],
     data: &'a PreviewData,
@@ -170,12 +179,13 @@ impl<'a> PreviewBuilder<'a> {
         }
     }
 
-    /// Total preview line count and the [start, end) range covered by the selected match.
+    /// Total preview line count and the [start, end) line range of every match, indexed by match.
     ///
-    /// The selected range is `0..0` when the preview is unfocused.
-    pub fn layout(&self) -> (usize, Range<usize>) {
+    /// Ranges are computed for all matches regardless of focus so the viewport can follow the
+    /// selected match even when the preview is not focused.
+    pub fn layout(&self) -> Layout {
         let mut total_lines = 0;
-        let mut selected_range: Range<usize> = 0..0;
+        let mut match_ranges = Vec::with_capacity(self.matches.len());
         for (match_idx, (info, preview)) in self
             .matches
             .iter()
@@ -185,13 +195,14 @@ impl<'a> PreviewBuilder<'a> {
             if match_idx > 0 {
                 total_lines += 1; // separator
             }
-            let match_start = total_lines;
+            let start = total_lines;
             total_lines += preview.line_count(info, self.replacement);
-            if self.selected == Some(match_idx) {
-                selected_range = match_start..total_lines;
-            }
+            match_ranges.push(start..total_lines);
         }
-        (total_lines, selected_range)
+        Layout {
+            total_lines,
+            match_ranges,
+        }
     }
 
     /// Generate the set of lines for the preview.

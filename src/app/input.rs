@@ -1,5 +1,10 @@
 use rat_widget::{event::TextOutcome, text_input};
-use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{
+    crossterm::event::{
+        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    },
+    layout::Position,
+};
 
 use crate::{app::App, types::Pane, ui::preview};
 
@@ -84,6 +89,20 @@ impl App {
         }
     }
 
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        // modals swallow mouse input, mirroring key handling
+        if self.confirm_apply_all || self.options_open {
+            return;
+        }
+        let pos = Position::new(mouse.column, mouse.row);
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => self.handle_click(pos, mouse),
+            MouseEventKind::ScrollDown => self.handle_scroll(pos, ScrollDir::Down),
+            MouseEventKind::ScrollUp => self.handle_scroll(pos, ScrollDir::Up),
+            _ => {}
+        }
+    }
+
     fn handle_options_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -117,6 +136,86 @@ impl App {
         }
     }
 
+    fn select_next_file(&mut self) {
+        if self.results.is_empty() {
+            return;
+        }
+        let next = (self.selected_file() + 1).min(self.results.len() - 1);
+        self.file_list.select(Some(next));
+        self.preview.reset_position();
+        self.dispatch_preview();
+    }
+
+    fn select_prev_file(&mut self) {
+        let prev = self.selected_file().saturating_sub(1);
+        self.file_list.select(Some(prev));
+        self.preview.reset_position();
+        self.dispatch_preview();
+    }
+
+    fn handle_click(&mut self, pos: Position, mouse: MouseEvent) {
+        let Some(pane) = self.pane_areas.pane_at(pos) else {
+            return;
+        };
+        // during search, only input panes are focusable (mirrors Tab)
+        if self.searching && !pane.is_input() {
+            return;
+        }
+        self.focused_pane = pane;
+        match pane {
+            Pane::SearchInput => {
+                text_input::handle_events(&mut self.search_input, true, &Event::Mouse(mouse));
+            }
+            Pane::ReplaceInput => {
+                text_input::handle_events(&mut self.replace_input, true, &Event::Mouse(mouse));
+            }
+            Pane::FileList => {
+                if let Some(idx) = self.file_list.row_at_clicked((pos.x, pos.y))
+                    && Some(idx) != self.file_list.selected()
+                {
+                    self.file_list.select(Some(idx));
+                    self.preview.reset_position();
+                    self.dispatch_preview();
+                }
+            }
+            Pane::Preview => {
+                if let Some(idx) = self.preview.match_at(pos) {
+                    self.preview.select_match(idx);
+                }
+            }
+        }
+    }
+
+    fn handle_scroll(&mut self, pos: Position, dir: ScrollDir) {
+        let Some(pane) = self.pane_areas.pane_at(pos) else {
+            return;
+        };
+        if self.searching && !pane.is_input() {
+            return;
+        }
+        match pane {
+            Pane::FileList => {
+                if matches!(dir, ScrollDir::Down) {
+                    self.select_next_file();
+                } else {
+                    self.select_prev_file();
+                }
+            }
+            Pane::Preview => {
+                let count = self
+                    .results
+                    .get(self.selected_file())
+                    .map_or(0, |fm| fm.matches.len());
+                if matches!(dir, ScrollDir::Down) {
+                    self.preview.move_down(count);
+                } else {
+                    self.preview.move_up();
+                }
+            }
+            Pane::SearchInput | Pane::ReplaceInput => {}
+        }
+    }
+
     fn handle_non_input_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.exit = true,
@@ -139,17 +238,11 @@ impl App {
                 return;
             }
             KeyCode::Char('j') | KeyCode::Down if !self.results.is_empty() => {
-                let next = (self.selected_file() + 1).min(self.results.len() - 1);
-                self.file_list.select(Some(next));
-                self.preview.reset_position();
-                self.dispatch_preview();
+                self.select_next_file();
                 return;
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                let prev = self.selected_file().saturating_sub(1);
-                self.file_list.select(Some(prev));
-                self.preview.reset_position();
-                self.dispatch_preview();
+                self.select_prev_file();
                 return;
             }
             KeyCode::Char('l') | KeyCode::Enter | KeyCode::Right if !self.results.is_empty() => {
@@ -183,4 +276,10 @@ impl App {
             preview::PreviewOutcome::Continue => self.handle_non_input_key(key),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum ScrollDir {
+    Up,
+    Down,
 }

@@ -2,6 +2,7 @@ mod builder;
 
 use std::{
     collections::HashMap,
+    ops::Range,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -10,15 +11,19 @@ use rat_widget::scrolled::{Scroll, ScrollArea, ScrollAreaState, ScrollState};
 use ratatui::{
     buffer::{Buffer, CellWidth as _},
     crossterm::event::{KeyCode, KeyEvent, KeyEventKind},
-    layout::{Alignment, Rect},
+    layout::{Alignment, Position, Rect},
     style::{Color, Style},
     symbols::border,
     widgets::{Block, Paragraph, StatefulWidget, Widget as _},
 };
 
 use crate::{
-    config::MatchMode, preview::data::PreviewData, search::FileMatches, types::Pane,
-    ui::preview::builder::PreviewBuilder, utils::trim_start_to_width,
+    config::MatchMode,
+    preview::data::PreviewData,
+    search::FileMatches,
+    types::Pane,
+    ui::preview::builder::{Layout, PreviewBuilder},
+    utils::trim_start_to_width,
 };
 
 /// Per-frame mutable state for the [`Preview`] widget.
@@ -33,6 +38,10 @@ pub struct PreviewState {
     /// Max value for `line_offset`, recomputed during each render.
     line_offset_max: usize,
     selected_match: usize,
+    /// Inner content area of the preview (excludes the border), set during render.
+    inner: Rect,
+    /// Line range covered by each match, indexed by match, set during render.
+    match_ranges: Vec<Range<usize>>,
 }
 
 impl PreviewState {
@@ -44,6 +53,24 @@ impl PreviewState {
     /// Currently selected match index within the active file's preview.
     pub fn selected_match(&self) -> usize {
         self.selected_match
+    }
+
+    /// Map a screen position to the index of the match rendered there, if any.
+    ///
+    /// Returns `None` for positions outside the content area or on a separator line between
+    /// matches.
+    pub fn match_at(&self, pos: Position) -> Option<usize> {
+        if !self.inner.contains(pos) {
+            return None;
+        }
+        let line = self.scroll.offset + usize::from(pos.y - self.inner.y);
+        self.match_ranges.iter().position(|r| r.contains(&line))
+    }
+
+    /// Select the match at `idx` and reset the intra-match line offset.
+    pub fn select_match(&mut self, idx: usize) {
+        self.selected_match = idx;
+        self.line_offset = 0;
     }
 
     /// Reset selection and scroll position.
@@ -132,7 +159,7 @@ impl PreviewState {
 
     /// Move the selection down by one row: scroll within the current match if room remains, otherwise advance
     /// to the next match (clamped to `match_count`).
-    fn move_down(&mut self, match_count: usize) {
+    pub fn move_down(&mut self, match_count: usize) {
         if match_count == 0 {
             return;
         }
@@ -149,7 +176,7 @@ impl PreviewState {
 
     /// Move the selection up by one row: scroll within the current match if scrolled, otherwise step back
     /// to the previous match (and scroll to its bottom).
-    fn move_up(&mut self) {
+    pub fn move_up(&mut self) {
         if self.line_offset > 0 {
             self.line_offset -= 1;
         } else {
@@ -254,7 +281,16 @@ impl StatefulWidget for Preview<'_> {
             inner.width,
         );
 
-        let (total_lines, selected_range) = builder.layout();
+        let Layout {
+            total_lines,
+            match_ranges,
+        } = builder.layout();
+        let selected_range = match_ranges
+            .get(state.selected_match)
+            .cloned()
+            .unwrap_or(0..0);
+        state.match_ranges = match_ranges;
+        state.inner = inner;
 
         // compute how far we can scroll within the selected match
         let selected_height = selected_range.end - selected_range.start;

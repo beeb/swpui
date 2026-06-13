@@ -161,7 +161,7 @@ directory applies to that directory and its descendants.
 - [x] Toggle hidden files
 - [x] Toggle gitignored files
 - [x] Custom `.swpignore` files
-- [ ] Focus pane with mouse
+- [x] Mouse support
 - [ ] Glob to include/exclude files
 
 ## Credits

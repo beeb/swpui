@@ -1,3 +1,5 @@
+use ratatui::layout::{Position, Rect};
+
 /// A half-open `[start, end)` byte range within a file's content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ByteRange {
@@ -104,9 +106,51 @@ impl Pane {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PaneAreas {
+    pub search_input: Rect,
+    pub replace_input: Rect,
+    pub file_list: Rect,
+    pub preview: Rect,
+}
+
+impl PaneAreas {
+    /// Return the pane whose rectangle contains `pos`, if any.
+    #[must_use]
+    pub fn pane_at(&self, pos: Position) -> Option<Pane> {
+        if self.search_input.contains(pos) {
+            Some(Pane::SearchInput)
+        } else if self.replace_input.contains(pos) {
+            Some(Pane::ReplaceInput)
+        } else if self.file_list.contains(pos) {
+            Some(Pane::FileList)
+        } else if self.preview.contains(pos) {
+            Some(Pane::Preview)
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pane_at_hits_correct_pane() {
+        use ratatui::layout::{Position, Rect};
+        let areas = PaneAreas {
+            search_input: Rect::new(0, 0, 10, 3),
+            replace_input: Rect::new(0, 3, 10, 3),
+            file_list: Rect::new(0, 6, 10, 10),
+            preview: Rect::new(10, 0, 20, 16),
+        };
+        assert_eq!(areas.pane_at(Position::new(5, 1)), Some(Pane::SearchInput));
+        assert_eq!(areas.pane_at(Position::new(5, 4)), Some(Pane::ReplaceInput));
+        assert_eq!(areas.pane_at(Position::new(5, 10)), Some(Pane::FileList));
+        assert_eq!(areas.pane_at(Position::new(15, 5)), Some(Pane::Preview));
+        assert_eq!(areas.pane_at(Position::new(50, 50)), None);
+    }
 
     #[test]
     fn pane_cycle_forward() {
