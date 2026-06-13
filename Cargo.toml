@@ -30,7 +30,7 @@ tempfile = "3.19.1"
 toml = "1.1.2"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
-unicode-width = "0.2"
+unicode-segmentation = "1.13.3"
 
 [lints.clippy]
 allow_attributes = "warn"

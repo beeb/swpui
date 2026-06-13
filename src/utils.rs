@@ -1,4 +1,5 @@
-use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr};
+use ratatui::buffer::CellWidth;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{search::FileMatches, types::MatchInfo};
 
@@ -17,14 +18,14 @@ impl<'a> TruncatedLine<'a> {
         matched: &'a str,
         replacement: Option<&'a str>,
         after: &'a str,
-        max_width: usize,
+        max_width: u16,
     ) -> TruncatedLine<'a> {
         let budget = max_width.saturating_sub(1); // account for leading space/margin
 
-        let before_w = before.width();
-        let matched_w = matched.width();
-        let replacement_w = replacement.map_or(0, UnicodeWidthStr::width);
-        let after_w = after.width();
+        let before_w = before.cell_width();
+        let matched_w = matched.cell_width();
+        let replacement_w = replacement.map_or(0, CellWidth::cell_width);
+        let after_w = after.cell_width();
         let total_w = before_w + matched_w + replacement_w + after_w;
 
         // everything fits
@@ -78,7 +79,7 @@ impl<'a> TruncatedLine<'a> {
         let avail = budget.saturating_sub(1); // reserve 1 col for left ellipsis
 
         let (matched, replacement, right_ellipsis) = if let Some(repl) = replacement {
-            let repl_w = repl.width();
+            let repl_w = repl.cell_width();
             if repl_w <= avail {
                 // replacement fits, give remaining to match (from the right end)
                 let match_avail = avail - repl_w;
@@ -119,20 +120,20 @@ pub fn results_mem_bytes(results: &[FileMatches]) -> usize {
 ///
 /// Returns `(visible_slice, was_trimmed)`.
 #[must_use]
-pub fn trim_start_to_width(s: &str, max_cols: usize, ellipsis: bool) -> (&str, bool) {
-    let w = s.width();
+pub fn trim_start_to_width(s: &str, max_cols: u16, ellipsis: bool) -> (&str, bool) {
+    let w = s.cell_width();
     if w <= max_cols {
         return (s, false);
     }
-    let target = max_cols.saturating_sub(usize::from(ellipsis)); // reserve 1 col for ellipsis if requested
-    let mut cols = 0;
+    let target = max_cols.saturating_sub(u16::from(ellipsis)); // reserve 1 col for ellipsis if requested
+    let mut cols: u16 = 0;
     let mut byte_start = s.len();
-    for (idx, ch) in s.char_indices().rev() {
-        let cw = ch.width().unwrap_or(0);
-        if cols + cw > target {
+    for (idx, g) in s.grapheme_indices(true).rev() {
+        let next = cols.saturating_add(g.cell_width());
+        if next > target {
             break;
         }
-        cols += cw;
+        cols = next;
         byte_start = idx;
     }
     (&s[byte_start..], true)
@@ -144,21 +145,21 @@ pub fn trim_start_to_width(s: &str, max_cols: usize, ellipsis: bool) -> (&str, b
 ///
 /// Returns `(visible_slice, was_trimmed)`.
 #[must_use]
-pub fn trim_end_to_width(s: &str, max_cols: usize, ellipsis: bool) -> (&str, bool) {
-    let w = s.width();
+pub fn trim_end_to_width(s: &str, max_cols: u16, ellipsis: bool) -> (&str, bool) {
+    let w = s.cell_width();
     if w <= max_cols {
         return (s, false);
     }
-    let target = max_cols.saturating_sub(usize::from(ellipsis)); // reserve 1 col for ellipsis if requested
-    let mut cols = 0;
+    let target = max_cols.saturating_sub(u16::from(ellipsis)); // reserve 1 col for ellipsis if requested
+    let mut cols: u16 = 0;
     let mut byte_end = 0;
-    for (idx, ch) in s.char_indices() {
-        let cw = ch.width().unwrap_or(0);
-        if cols + cw > target {
+    for (idx, g) in s.grapheme_indices(true) {
+        let next = cols.saturating_add(g.cell_width());
+        if next > target {
             break;
         }
-        cols += cw;
-        byte_end = idx + ch.len_utf8();
+        cols = next;
+        byte_end = idx + g.len();
     }
     (&s[..byte_end], true)
 }
@@ -313,6 +314,22 @@ mod tests {
         assert_eq!(result.matched, "");
         assert_eq!(result.replacement, Some("RRRRRRR"));
         assert_eq!(result.after, "");
+    }
+
+    #[test]
+    fn trim_end_context_dependent() {
+        // U+FE0F makes the preceding '#' render as a 2-cell emoji, so "#\u{FE0F}" is 2 cells,
+        // not the 1 a per-char sum would give. With a 2-col budget only "#\u{FE0F}" fits.
+        let (out, trimmed) = trim_end_to_width("#\u{FE0F}ab", 2, false);
+        assert_eq!(out, "#\u{FE0F}");
+        assert!(trimmed);
+    }
+
+    #[test]
+    fn trim_start_context_dependent() {
+        let (out, trimmed) = trim_start_to_width("ab#\u{FE0F}", 2, false);
+        assert_eq!(out, "#\u{FE0F}");
+        assert!(trimmed);
     }
 
     #[test]

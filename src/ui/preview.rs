@@ -8,14 +8,13 @@ use std::{
 
 use rat_widget::scrolled::{Scroll, ScrollArea, ScrollAreaState, ScrollState};
 use ratatui::{
-    buffer::Buffer,
+    buffer::{Buffer, CellWidth as _},
     crossterm::event::{KeyCode, KeyEvent, KeyEventKind},
     layout::{Alignment, Rect},
     style::{Color, Style},
     symbols::border,
     widgets::{Block, Paragraph, StatefulWidget, Widget as _},
 };
-use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     config::MatchMode, preview::data::PreviewData, search::FileMatches, types::Pane,
@@ -175,7 +174,7 @@ pub struct Preview<'a> {
 
 impl Preview<'_> {
     fn format_title(&self, area_width: u16) -> String {
-        let title_max = area_width.saturating_sub(2) as usize; // border chars
+        let title_max = area_width.saturating_sub(2); // border chars
         let digit = Pane::Preview.digit();
         self.file.map_or_else(
             || format!("\u{2500}[{digit}]\u{2500}Preview"),
@@ -186,12 +185,13 @@ impl Preview<'_> {
                     .map_or(fm.path.to_string_lossy().into(), ToString::to_string);
                 let prefix = format!("\u{2500}[{digit}]\u{2500}Preview: ");
                 let full = format!("{prefix}{path_str}");
-                if full.width() <= title_max {
+                if full.cell_width() <= title_max {
                     full
                 } else {
+                    #[expect(clippy::cast_possible_truncation)]
+                    let prefix_w = prefix.chars().count() as u16;
                     // truncate path from the left with ellipsis
-                    let path_str =
-                        trim_start_to_width(&path_str, title_max - prefix.width(), true).0;
+                    let path_str = trim_start_to_width(&path_str, title_max - prefix_w, true).0;
                     format!("{prefix}\u{2026}{path_str}")
                 }
             },

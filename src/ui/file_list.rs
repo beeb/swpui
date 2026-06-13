@@ -52,7 +52,7 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
 
     let selected = app.file_list.selected();
     let inner = block.inner(area);
-    let inner_width = inner.width as usize;
+    let inner_width = inner.width;
     let inner_height = inner.height as usize;
     let total_items = app.results.len();
 
@@ -85,10 +85,11 @@ pub fn render(app: &mut App, frame: &mut Frame, area: Rect) {
             } else {
                 let total = fm.matches.len();
                 let suffix = format!(" ({active}/{total})");
+                #[expect(clippy::cast_possible_truncation)]
                 let label = fm
                     .responsive_path
                     .as_ref()
-                    .map(|p| p.to_width(inner_width.saturating_sub(suffix.len())))
+                    .map(|p| p.to_width(inner_width.saturating_sub(suffix.len() as u16)))
                     .unwrap_or(fm.path.to_string_lossy().into());
                 let label = format!("{label}{suffix}");
                 if dimmed {

@@ -96,8 +96,9 @@ impl Gutter {
 
     /// Effective `max_width` to pass to [`TruncatedLine::new`] so that the gutter and content together fit
     /// within `inner_width`.
-    fn content_max_width(&self, inner_width: u16) -> usize {
-        (inner_width as usize).saturating_sub(self.line_nb_width + 1)
+    fn content_max_width(&self, inner_width: u16) -> u16 {
+        #[expect(clippy::cast_possible_truncation)]
+        inner_width.saturating_sub(self.line_nb_width as u16 + 1)
     }
 }
 

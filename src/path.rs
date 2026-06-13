@@ -5,7 +5,7 @@ use std::{
     path::{Component, MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path},
 };
 
-use unicode_width::UnicodeWidthStr as _;
+use ratatui::buffer::CellWidth as _;
 
 use crate::utils::{trim_end_to_width, trim_start_to_width};
 
@@ -70,7 +70,7 @@ impl ResponsivePath {
     /// 5. Ellipsis in the file stem
     /// 6. Right-aligned (left-truncated) compact form
     #[must_use]
-    pub fn to_width(&self, width: usize) -> String {
+    pub fn to_width(&self, width: u16) -> String {
         if let Some(out) = self.cache.get(width) {
             return out;
         }
@@ -89,8 +89,11 @@ impl ResponsivePath {
         }
 
         let dir_prefix = self.dir_prefix_string(Some(1));
-        let compact = format!("{dir_prefix}{}", self.short_last(dir_prefix.width(), width));
-        let compact_w = compact.width();
+        let compact = format!(
+            "{dir_prefix}{}",
+            self.short_last(dir_prefix.cell_width(), width)
+        );
+        let compact_w = compact.cell_width();
 
         if compact_w <= width {
             self.cache.insert(width, compact.clone());
@@ -103,13 +106,17 @@ impl ResponsivePath {
     }
 
     /// Checks whether the path would fit with each segment being `truncate` chars (and filename not abbreviated)
-    fn fits(&self, truncate: Option<usize>, width: usize) -> bool {
-        let last_w = self.last.as_ref().map(|s| s.width()).unwrap_or_default();
+    fn fits(&self, truncate: Option<u16>, width: u16) -> bool {
+        let last_w = self
+            .last
+            .as_ref()
+            .map(|s| s.cell_width())
+            .unwrap_or_default();
         self.dir_prefix_width(truncate) + last_w <= width
     }
 
     /// Directories prefix (including trailing separator)
-    fn dir_prefix_string(&self, truncate: Option<usize>) -> String {
+    fn dir_prefix_string(&self, truncate: Option<u16>) -> String {
         if self.dirs.is_empty() {
             String::new()
         } else {
@@ -118,12 +125,12 @@ impl ResponsivePath {
     }
 
     /// Width of the directories (including trailing separator)
-    fn dir_prefix_width(&self, truncate: Option<usize>) -> usize {
-        self.dir_prefix_string(truncate).width()
+    fn dir_prefix_width(&self, truncate: Option<u16>) -> u16 {
+        self.dir_prefix_string(truncate).cell_width()
     }
 
     /// Join the path segments and filename, truncating each dir segment to `truncate` chars.
-    fn join_path(&self, truncate: Option<usize>) -> String {
+    fn join_path(&self, truncate: Option<u16>) -> String {
         let mut s = self.format_dirs(truncate);
         if let Some(last) = &self.last {
             if !s.is_empty() {
@@ -135,22 +142,25 @@ impl ResponsivePath {
     }
 
     /// Join the path segments (without filename), truncating each dir segment to `truncate` chars.
-    fn format_dirs(&self, truncate: Option<usize>) -> String {
+    fn format_dirs(&self, truncate: Option<u16>) -> String {
         self.dirs
             .iter()
             .map(|dir| {
-                truncate.map_or_else(|| dir.clone(), |n| dir.chars().take(n).collect::<String>())
+                truncate.map_or_else(
+                    || dir.clone(),
+                    |n| dir.chars().take(n.into()).collect::<String>(),
+                )
             })
             .collect::<Vec<_>>()
             .join(MAIN_SEPARATOR_STR)
     }
 
     /// Compute an abbreviated form of the last segment, sized so the full path targets `width` total display columns.
-    fn short_last(&self, dir_prefix_w: usize, width: usize) -> String {
+    fn short_last(&self, dir_prefix_w: u16, width: u16) -> String {
         let Some(filename) = self.last.as_deref() else {
             return String::new();
         };
-        let filename_w = filename.width();
+        let filename_w = filename.cell_width();
         if dir_prefix_w + filename_w <= width {
             return filename.to_string();
         }
@@ -161,8 +171,8 @@ impl ResponsivePath {
             return filename.to_string();
         }
         // overhead = dir_prefix + ellipsis + period + ext
-        let dot_w = usize::from(!ext.is_empty());
-        let overhead = dir_prefix_w + 1 + dot_w + ext.width();
+        let dot_w = u16::from(!ext.is_empty());
+        let overhead = dir_prefix_w + 1 + dot_w + ext.cell_width();
         let budget = width.saturating_sub(overhead);
         let left = budget.div_ceil(2).max(1);
         let right = budget.saturating_sub(left).max(1);
@@ -188,17 +198,17 @@ impl ResponsivePath {
 }
 
 #[derive(Debug, Default, Clone)]
-struct Cache(RefCell<VecDeque<(usize, String)>>);
+struct Cache(RefCell<VecDeque<(u16, String)>>);
 
 impl Cache {
-    fn get(&self, width: usize) -> Option<String> {
+    fn get(&self, width: u16) -> Option<String> {
         self.0
             .borrow()
             .iter()
             .find_map(|(w, s)| if w == &width { Some(s.clone()) } else { None })
     }
 
-    fn insert(&self, width: usize, s: impl Into<String>) {
+    fn insert(&self, width: u16, s: impl Into<String>) {
         let s = s.into();
         {
             let mut this = self.0.borrow_mut();
