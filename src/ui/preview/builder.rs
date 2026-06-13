@@ -63,6 +63,7 @@ impl Gutter {
         line_number: Option<usize>,
         is_selected: bool,
         is_skipped: bool,
+        focused: bool,
     ) -> Vec<Span<'static>> {
         let line_nb_style = if is_skipped {
             Style::default().dim()
@@ -74,12 +75,13 @@ impl Gutter {
             })
         };
         let (ind, ind_style) = if is_selected {
-            (
-                ">",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )
+            let style = Style::default().fg(Color::Yellow);
+            let style = if focused {
+                style.add_modifier(Modifier::BOLD)
+            } else {
+                style
+            };
+            (">", style)
         } else {
             (" ", Style::default())
         };
@@ -105,7 +107,7 @@ impl Gutter {
 /// One rendered preview line that belongs to a match (matched, removed, added, or skipped).
 struct MatchLine {
     spans: Vec<Span<'static>>,
-    is_selected: bool,
+    bold: bool,
 }
 
 impl MatchLine {
@@ -114,10 +116,11 @@ impl MatchLine {
         line_number: Option<usize>,
         is_selected: bool,
         is_skipped: bool,
+        focused: bool,
     ) -> Self {
         Self {
-            spans: gutter.match_spans(line_number, is_selected, is_skipped),
-            is_selected,
+            spans: gutter.match_spans(line_number, is_selected, is_skipped, focused),
+            bold: is_selected && focused,
         }
     }
 
@@ -128,7 +131,7 @@ impl MatchLine {
 
 impl From<MatchLine> for Line<'static> {
     fn from(mut ml: MatchLine) -> Self {
-        if ml.is_selected {
+        if ml.bold {
             for span in &mut ml.spans {
                 span.style = span.style.add_modifier(Modifier::BOLD);
             }
@@ -152,6 +155,7 @@ pub struct PreviewBuilder<'a> {
     replacement: &'a str,
     mode: MatchMode,
     selected: Option<usize>,
+    focused: bool,
     inner_width: u16,
     gutter: Gutter,
 }
@@ -167,13 +171,13 @@ impl<'a> PreviewBuilder<'a> {
         inner_width: u16,
     ) -> Self {
         let gutter = Gutter::new(data);
-        let selected = is_preview_focused.then_some(selected_match);
         Self {
             matches,
             data,
             replacement,
             mode,
-            selected,
+            selected: Some(selected_match),
+            focused: is_preview_focused,
             inner_width,
             gutter,
         }
@@ -293,7 +297,13 @@ impl<'a> PreviewBuilder<'a> {
         let dim = Style::default().dim();
         let content_max = self.gutter.content_max_width(self.inner_width);
 
-        let mut ml = MatchLine::new(&self.gutter, Some(*line_number), is_selected, info.skip);
+        let mut ml = MatchLine::new(
+            &self.gutter,
+            Some(*line_number),
+            is_selected,
+            info.skip,
+            self.focused,
+        );
 
         if info.skip {
             let t = TruncatedLine::new(before, matched, None, after, content_max);
@@ -376,7 +386,13 @@ impl<'a> PreviewBuilder<'a> {
 
         let make_line =
             |line_number: Option<usize>, marker: &str, content: String, style: Style| {
-                let mut ml = MatchLine::new(&self.gutter, line_number, is_selected, info.skip);
+                let mut ml = MatchLine::new(
+                    &self.gutter,
+                    line_number,
+                    is_selected,
+                    info.skip,
+                    self.focused,
+                );
                 ml.push(Span::styled(format!("{marker} {content}"), style));
                 ml.into()
             };
@@ -583,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_match_line_has_indicator_and_bold() {
+    fn selected_match_line_indicator() {
         let matches = vec![make_info()];
         let data = PreviewData {
             matches: vec![make_preview_single("hello world", 0, 5)].into(),
@@ -607,18 +623,20 @@ mod tests {
     }
 
     #[test]
-    fn unselected_match_line_has_blank_indicator() {
+    fn unfocused_selected_match_indicator() {
         let matches = vec![make_info()];
         let data = PreviewData {
             matches: vec![make_preview_single("hello world", 0, 5)].into(),
             size: 0,
         };
+        // test_builder is unfocused: the selection stays visible but the gutter is not bold
         let builder = test_builder(&matches, &data, "", MatchMode::Literal);
         let lines = builder.build(0..usize::MAX);
         let match_line = &lines[0];
-        assert_eq!(match_line.spans[0].content.as_ref(), " ");
-        // before/after spans (Span::raw) should not carry BOLD when the match isn't selected
-        let before_span = &match_line.spans[2];
-        assert!(!before_span.style.add_modifier.contains(Modifier::BOLD));
+        let indicator = &match_line.spans[0];
+        let line_number = &match_line.spans[1];
+        assert_eq!(indicator.content.as_ref(), ">");
+        assert!(!indicator.style.add_modifier.contains(Modifier::BOLD));
+        assert!(!line_number.style.add_modifier.contains(Modifier::BOLD));
     }
 }
