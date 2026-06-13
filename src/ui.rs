@@ -140,7 +140,12 @@ fn render_confirm_modal(frame: &mut Frame, area: Rect) {
     frame.render_widget(block, modal_area);
     let body = vec![
         Line::from("Apply all replacements?").centered(),
-        Line::from(Span::styled("y / n", Style::default().fg(Color::Blue))).centered(),
+        Line::from(vec![
+            Span::styled("y/enter", Style::default().fg(Color::Green)),
+            Span::raw(" : "),
+            Span::styled("n/esc", Style::default().fg(Color::Red)),
+        ])
+        .centered(),
     ];
     frame.render_widget(Paragraph::new(body), inner);
 }

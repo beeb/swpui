@@ -8,7 +8,7 @@ impl App {
         // confirmation modal intercepts all keys
         if self.confirm_apply_all {
             match key.code {
-                KeyCode::Char('y') => {
+                KeyCode::Char('y') | KeyCode::Enter => {
                     self.confirm_apply_all = false;
                     self.apply_all();
                 }
