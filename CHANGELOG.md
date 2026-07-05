@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.10.0] - 2026-07-05
+
+### Added
+
+
+-  add glob filters for including/excluding paths ([#56](https://github.com/beeb/swpui/pull/56)) - ([818b231](https://github.com/beeb/swpui/commit/818b23171dfbd161125c358d0d939a34f6ce82ce))
+
+
+
+
+**Full Changelog**: [0.9.0...0.10.0](https://github.com/beeb/swpui/compare/v0.9.0...v0.10.0)
+
+
 ## [0.9.0] - 2026-06-13
 
 ### Added
