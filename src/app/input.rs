@@ -33,16 +33,16 @@ impl App {
                 return;
             }
             KeyCode::BackTab => {
-                self.focused_pane = self.focused_pane.prev();
+                self.focused_pane = self.focused_pane.prev(self.filter_view);
                 while self.searching && !self.focused_pane.is_input() {
-                    self.focused_pane = self.focused_pane.prev();
+                    self.focused_pane = self.focused_pane.prev(self.filter_view);
                 }
                 return;
             }
             KeyCode::Tab => {
-                self.focused_pane = self.focused_pane.next();
+                self.focused_pane = self.focused_pane.next(self.filter_view);
                 while self.searching && !self.focused_pane.is_input() {
-                    self.focused_pane = self.focused_pane.next();
+                    self.focused_pane = self.focused_pane.next(self.filter_view);
                 }
                 return;
             }
@@ -65,6 +65,14 @@ impl App {
                 self.options_open = !self.options_open;
                 return;
             }
+            KeyCode::Char('g')
+                if key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.toggle_filter_view();
+                return;
+            }
             KeyCode::Esc if self.focused_pane.is_input() && !self.searching => {
                 self.focused_pane = Pane::FileList;
                 return;
@@ -82,6 +90,20 @@ impl App {
             }
             Pane::ReplaceInput => {
                 text_input::handle_events(&mut self.replace_input, true, &Event::Key(key));
+            }
+            Pane::IncludeInput => {
+                let outcome =
+                    text_input::handle_events(&mut self.include_input, true, &Event::Key(key));
+                if outcome == TextOutcome::TextChanged {
+                    self.schedule_rebuild();
+                }
+            }
+            Pane::ExcludeInput => {
+                let outcome =
+                    text_input::handle_events(&mut self.exclude_input, true, &Event::Key(key));
+                if outcome == TextOutcome::TextChanged {
+                    self.schedule_rebuild();
+                }
             }
             Pane::FileList if !self.searching => self.handle_file_list_key(key),
             Pane::Preview if !self.searching => self.handle_preview_key(key),
@@ -136,6 +158,18 @@ impl App {
         }
     }
 
+    /// Swap between the search/replace and include/exclude input views.
+    fn toggle_filter_view(&mut self) {
+        self.filter_view = !self.filter_view;
+        self.focused_pane = match (self.filter_view, self.focused_pane) {
+            (true, Pane::SearchInput) => Pane::IncludeInput,
+            (true, Pane::ReplaceInput) => Pane::ExcludeInput,
+            (false, Pane::IncludeInput) => Pane::SearchInput,
+            (false, Pane::ExcludeInput) => Pane::ReplaceInput,
+            (_, pane) => pane,
+        };
+    }
+
     fn select_next_file(&mut self) {
         if self.results.is_empty() {
             return;
@@ -168,6 +202,12 @@ impl App {
             }
             Pane::ReplaceInput => {
                 text_input::handle_events(&mut self.replace_input, true, &Event::Mouse(mouse));
+            }
+            Pane::IncludeInput => {
+                text_input::handle_events(&mut self.include_input, true, &Event::Mouse(mouse));
+            }
+            Pane::ExcludeInput => {
+                text_input::handle_events(&mut self.exclude_input, true, &Event::Mouse(mouse));
             }
             Pane::FileList => {
                 if let Some(idx) = self.file_list.row_at_clicked((pos.x, pos.y))
@@ -212,7 +252,7 @@ impl App {
                     self.preview.move_up();
                 }
             }
-            Pane::SearchInput | Pane::ReplaceInput => {}
+            Pane::SearchInput | Pane::ReplaceInput | Pane::IncludeInput | Pane::ExcludeInput => {}
         }
     }
 
@@ -224,6 +264,11 @@ impl App {
             KeyCode::Char(c) => {
                 // TODO: rewrite as if-let guard when updating to rust 1.95
                 if let Some(pane) = Pane::from_digit(c) {
+                    match pane {
+                        Pane::SearchInput | Pane::ReplaceInput => self.filter_view = false,
+                        Pane::IncludeInput | Pane::ExcludeInput => self.filter_view = true,
+                        Pane::FileList | Pane::Preview => {}
+                    }
                     self.focused_pane = pane;
                 }
             }

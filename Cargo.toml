@@ -32,6 +32,9 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 unicode-segmentation = "1.13.3"
 
+[dev-dependencies]
+indoc = "2.0.7"
+
 [lints.clippy]
 allow_attributes = "warn"
 expect_used = "deny"

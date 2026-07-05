@@ -67,13 +67,14 @@ $ swp
 
 #### Global
 
-| Key                | Action            |
-| ------------------ | ----------------- |
-| `Tab`              | Next pane         |
-| `Shift+Tab`        | Previous pane     |
-| `Ctrl+r` / `Alt+r` | Cycle match mode  |
-| `Ctrl+o` / `Alt+o` | Open options menu |
-| `Ctrl+c`           | Quit              |
+| Key                | Action                  |
+| ------------------ | ----------------------- |
+| `Tab`              | Next pane               |
+| `Shift+Tab`        | Previous pane           |
+| `Ctrl+r` / `Alt+r` | Cycle match mode        |
+| `Ctrl+g` / `Alt+g` | Toggle glob filter view |
+| `Ctrl+o` / `Alt+o` | Open options menu       |
+| `Ctrl+c`           | Quit                    |
 
 #### Options Menu
 
@@ -126,6 +127,18 @@ In regex mode, the replacement template can reference capture groups from the se
 
 For example, searching for `(\w+)_(\w+)` and replacing with `$2_$1` swaps the two halves of each `snake_case` pair.
 
+### Glob filters
+
+Press `Ctrl+g` / `Alt+g` to switch to the glob filters view. The search and replace fields are hidden in favor of a
+field for and "include" and "exclude" globs list. Each input takes a comma-separated list of globs with
+[gitignore](https://git-scm.com/docs/gitignore) matching semantics (same as ripgrep's `-g` flag).
+
+- **Include**: when non-empty, only files matching at least one include glob are searched.
+- **Exclude**: files matching any exclude glob are never searched.
+
+Filters combine with the hidden/gitignore options and `.swpignore` files (an include glob does not re-include an ignored
+file). Active filters are shown in the status line at the bottom.
+
 ## Configuration
 
 Default values for the options can be persisted in a `swpui.toml` (or `.swpui.toml`) file. On startup, `swpui` looks for
@@ -142,6 +155,8 @@ the value from the next layer up, ultimately defaulting to the built-in defaults
 match-mode = "case-aware" # case-aware | literal | regex | regex-multiline
 include-hidden = true
 include-gitignored = false
+include-globs = [] # e.g. ["src/**", "*.{rs,toml}"]
+exclude-globs = [] # e.g. ["*_test.rs"]
 ```
 
 ### Custom ignore file
@@ -162,7 +177,7 @@ directory applies to that directory and its descendants.
 - [x] Toggle gitignored files
 - [x] Custom `.swpignore` files
 - [x] Mouse support
-- [ ] Glob to include/exclude files
+- [x] Glob to include/exclude files
 
 ## Credits
 

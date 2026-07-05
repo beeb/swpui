@@ -12,13 +12,14 @@ use std::{
 pub const MAX_FILES: usize = 250_000;
 pub const MAX_MATCHES: usize = 1_000_000;
 
-use ignore::{WalkBuilder, WalkState};
+use ignore::{WalkBuilder, WalkState, overrides::Override};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use regex::Regex;
 use tracing::debug;
 
 use crate::{
     config::{MatchMode, Options},
+    glob::GlobFilters,
     hash::FileHash,
     path::ResponsivePath,
     types::{ByteRange, MatchInfo},
@@ -35,17 +36,19 @@ pub enum WorkerCommand {
     Rebuild(WalkOptions),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct WalkOptions {
     pub include_hidden: bool,
     pub include_gitignored: bool,
+    pub globs: GlobFilters,
 }
 
-impl From<Options> for WalkOptions {
-    fn from(options: Options) -> Self {
+impl From<&Options> for WalkOptions {
+    fn from(options: &Options) -> Self {
         Self {
             include_hidden: options.include_hidden,
             include_gitignored: options.include_gitignored,
+            globs: options.globs.clone(),
         }
     }
 }
@@ -186,10 +189,21 @@ impl SearchWorker {
         let WalkOptions {
             include_hidden,
             include_gitignored,
+            globs,
         } = opts;
+        // invalid globs are caught in the UI before dispatch, so fall back to no filtering
+        let overrides = globs
+            .overrides(&self.root)
+            .unwrap_or_else(|_| Override::empty());
         let walker = WalkBuilder::new(&self.root)
-            .filter_entry(|entry| {
-                !(entry.path().is_dir() && entry.path().file_name().unwrap_or_default() == ".git")
+            .filter_entry(move |entry| {
+                if entry.path().is_dir() && entry.path().file_name().unwrap_or_default() == ".git" {
+                    return false;
+                }
+                // the globs are checked here rather than via WalkBuilder::overrides so that
+                // ignore rules keep precedence: an include glob must not resurrect ignored files
+                let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
+                !overrides.matched(entry.path(), is_dir).is_ignore()
             })
             .hidden(!include_hidden)
             .git_ignore(!include_gitignored)
@@ -399,6 +413,93 @@ mod tests {
         dir
     }
 
+    fn matched_paths(dir: &TempDir, opts: WalkOptions) -> Vec<PathBuf> {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker =
+            SearchWorker::new(dir.path().to_path_buf(), cmd_rx, result_tx, cancelled).unwrap();
+        let handle = thread::spawn(move || worker.run(opts));
+        cmd_tx
+            .send(WorkerCommand::Search(SearchRequest {
+                pattern: "needle".to_string(),
+                mode: MatchMode::Literal,
+                generation: 1,
+            }))
+            .unwrap();
+        let mut paths = Vec::new();
+        loop {
+            match result_rx.recv_timeout(Duration::from_secs(2)).unwrap() {
+                SearchResult::FileMatches { file_matches, .. } => {
+                    paths.push(
+                        file_matches
+                            .path
+                            .strip_prefix(dir.path())
+                            .unwrap()
+                            .to_path_buf(),
+                    );
+                }
+                SearchResult::Complete { .. } => break,
+                SearchResult::FileListReady { .. } => {}
+                SearchResult::Error { message, .. } => panic!("unexpected error: {message}"),
+            }
+        }
+        drop(cmd_tx);
+        handle.join().unwrap();
+        paths.sort();
+        paths
+    }
+
+    fn walk_opts(include: &[&str], exclude: &[&str]) -> WalkOptions {
+        WalkOptions {
+            include_hidden: true,
+            include_gitignored: false,
+            globs: GlobFilters {
+                include: include.iter().map(ToString::to_string).collect(),
+                exclude: exclude.iter().map(ToString::to_string).collect(),
+            },
+        }
+    }
+
+    #[test]
+    fn include_globs() {
+        let dir = create_test_dir(&[("a.rs", "needle\n"), ("b.txt", "needle\n")]);
+        let paths = matched_paths(&dir, walk_opts(&["*.rs"], &[]));
+        assert_eq!(paths, vec![PathBuf::from("a.rs")]);
+    }
+
+    #[test]
+    fn exclude_globs() {
+        let dir = create_test_dir(&[("a.rs", "needle\n"), ("b.txt", "needle\n")]);
+        let paths = matched_paths(&dir, walk_opts(&[], &["*.txt"]));
+        assert_eq!(paths, vec![PathBuf::from("a.rs")]);
+    }
+
+    #[test]
+    fn exclude_and_include() {
+        let dir = create_test_dir(&[("keep.rs", "needle\n"), ("skip.rs", "needle\n")]);
+        let paths = matched_paths(&dir, walk_opts(&["*.rs"], &["skip.rs"]));
+        assert_eq!(paths, vec![PathBuf::from("keep.rs")]);
+    }
+
+    #[test]
+    fn dir_scoped() {
+        let dir = create_test_dir(&[("src/a.rs", "needle\n"), ("other/b.rs", "needle\n")]);
+        let paths = matched_paths(&dir, walk_opts(&["src/**"], &[]));
+        assert_eq!(paths, vec![PathBuf::from("src/a.rs")]);
+    }
+
+    #[test]
+    fn globs_with_swpignore() {
+        let dir = create_test_dir(&[
+            ("kept.rs", "needle\n"),
+            ("ignored.rs", "needle\n"),
+            (".swpignore", "ignored.rs\n"),
+        ]);
+        let paths = matched_paths(&dir, walk_opts(&["*.rs"], &[]));
+        assert_eq!(paths, vec![PathBuf::from("kept.rs")]);
+    }
+
     #[test]
     fn file_matches_match_count() {
         let fm = FileMatches {
@@ -523,7 +624,7 @@ mod tests {
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker =
             SearchWorker::new(dir.path().to_path_buf(), cmd_rx, result_tx, cancelled).unwrap();
-        let handle = thread::spawn(move || worker.run(Options::default().into()));
+        let handle = thread::spawn(move || worker.run(WalkOptions::from(&Options::default())));
 
         cmd_tx
             .send(WorkerCommand::Search(SearchRequest {
@@ -565,41 +666,8 @@ mod tests {
             ("excluded.txt", "needle\n"),
             (".swpignore", "excluded.txt\n"),
         ]);
-        let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (result_tx, result_rx) = mpsc::channel();
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let worker =
-            SearchWorker::new(dir.path().to_path_buf(), cmd_rx, result_tx, cancelled).unwrap();
-        let handle = thread::spawn(move || worker.run(Options::default().into()));
-
-        cmd_tx
-            .send(WorkerCommand::Search(SearchRequest {
-                pattern: "needle".to_string(),
-                mode: MatchMode::Literal,
-                generation: 1,
-            }))
-            .unwrap();
-
-        let mut matched_paths = Vec::new();
-        loop {
-            match result_rx.recv_timeout(Duration::from_secs(2)).unwrap() {
-                SearchResult::FileMatches { file_matches, .. } => {
-                    matched_paths.push(file_matches.path);
-                }
-                SearchResult::Complete { .. } => break,
-                SearchResult::FileListReady { .. } => {}
-                SearchResult::Error { message, .. } => panic!("unexpected error: {message}"),
-            }
-        }
-        drop(cmd_tx);
-        handle.join().unwrap();
-
-        let names: Vec<_> = matched_paths
-            .iter()
-            .filter_map(|p| p.file_name().and_then(|n| n.to_str()))
-            .collect();
-        assert!(names.contains(&"kept.txt"));
-        assert!(!names.contains(&"excluded.txt"));
+        let paths = matched_paths(&dir, WalkOptions::from(&Options::default()));
+        assert_eq!(paths, vec![PathBuf::from("kept.txt")]);
     }
 
     #[test]
@@ -619,7 +687,7 @@ mod tests {
             cancelled.clone(),
         )
         .unwrap();
-        let handle = thread::spawn(move || worker.run(Options::default().into()));
+        let handle = thread::spawn(move || worker.run(WalkOptions::from(&Options::default())));
 
         // send first request then immediately cancel and send second
         cmd_tx

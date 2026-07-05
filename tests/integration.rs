@@ -1,12 +1,21 @@
 #![expect(clippy::unwrap_used)]
 
-use std::{fs, io::Write as _, sync::atomic::AtomicUsize};
+use std::{
+    fs,
+    io::Write as _,
+    sync::atomic::AtomicUsize,
+    time::{Duration, Instant},
+};
 
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use swpui::{
-    config::MatchMode,
+    app::App,
+    config::{ConfigResult, MatchMode, Options},
+    glob::GlobFilters,
     hash::FileHash,
     replace::{apply_replacements, effective_replacement, write_file},
     search::{Pattern, find_matches_in_content},
+    types::Pane,
 };
 
 fn create_test_dir(files: &[(&str, &str)]) -> tempfile::TempDir {
@@ -115,4 +124,142 @@ fn multiline_search_and_replace_workflow() {
         fs::read_to_string(&path).unwrap(),
         "hello\nfoo BAR\nBAZ qux\nend\n"
     );
+}
+
+fn test_app(dir: &tempfile::TempDir) -> App {
+    let config = ConfigResult {
+        options: Options::default(),
+        warning: None,
+    };
+    App::new(dir.path().to_path_buf(), config).unwrap()
+}
+
+/// Backdate the last keystroke so the debounce window has elapsed.
+fn force_debounce(app: &mut App) {
+    app.last_keystroke = Instant::now().checked_sub(Duration::from_millis(200));
+    app.debounce_search();
+}
+
+#[test]
+fn glob_edit_updates_options() {
+    let dir = create_test_dir(&[("a.txt", "x\n")]);
+    let mut app = test_app(&dir);
+    app.include_input.set_text("*.rs, src/**");
+    app.exclude_input.set_text("*_test.rs");
+    app.schedule_rebuild();
+    force_debounce(&mut app);
+    assert_eq!(
+        app.options.globs.include,
+        vec!["*.rs".to_string(), "src/**".to_string()]
+    );
+    assert_eq!(app.options.globs.exclude, vec!["*_test.rs".to_string()]);
+    assert!(!app.pending_rebuild);
+}
+
+#[test]
+fn invalid_glob_marks_input() {
+    let dir = create_test_dir(&[("a.txt", "x\n")]);
+    let mut app = test_app(&dir);
+    app.exclude_input.set_text("foo[");
+    app.schedule_rebuild();
+    force_debounce(&mut app);
+    assert!(app.exclude_input.invalid);
+    assert!(app.status_message.is_some());
+    assert!(app.options.globs.is_empty());
+}
+
+#[test]
+fn startup_invalid_config_glob() {
+    let dir = create_test_dir(&[("a.txt", "x\n")]);
+    let options = Options {
+        globs: GlobFilters::parse("foo[", ""),
+        ..Options::default()
+    };
+    let app = App::new(
+        dir.path().to_path_buf(),
+        ConfigResult {
+            options,
+            warning: None,
+        },
+    )
+    .unwrap();
+    assert!(app.include_input.invalid);
+    assert!(app.status_message.is_some());
+    assert_eq!(app.include_input.text(), "foo[");
+}
+
+#[test]
+fn startup_populates_glob_inputs() {
+    let dir = create_test_dir(&[("a.txt", "x\n")]);
+    let options = Options {
+        globs: GlobFilters::parse("src/**, *.rs", "*_test.rs"),
+        ..Options::default()
+    };
+    let app = App::new(
+        dir.path().to_path_buf(),
+        ConfigResult {
+            options,
+            warning: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(app.include_input.text(), "src/**, *.rs");
+    assert_eq!(app.exclude_input.text(), "*_test.rs");
+    assert!(!app.include_input.invalid);
+}
+
+fn key(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
+    KeyEvent::new(code, mods)
+}
+
+#[test]
+fn glob_toggle_view_focus() {
+    let dir = create_test_dir(&[("a.txt", "x\n")]);
+    let mut app = test_app(&dir);
+    assert!(!app.filter_view);
+    assert_eq!(app.focused_pane, Pane::SearchInput);
+
+    app.handle_key(key(KeyCode::Char('g'), KeyModifiers::CONTROL));
+    assert!(app.filter_view);
+    assert_eq!(app.focused_pane, Pane::IncludeInput);
+
+    app.handle_key(key(KeyCode::Char('g'), KeyModifiers::ALT));
+    assert!(!app.filter_view);
+    assert_eq!(app.focused_pane, Pane::SearchInput);
+}
+
+#[test]
+fn glob_toggle_noninput_focus() {
+    let dir = create_test_dir(&[("a.txt", "x\n")]);
+    let mut app = test_app(&dir);
+    app.focused_pane = Pane::FileList;
+    app.handle_key(key(KeyCode::Char('g'), KeyModifiers::CONTROL));
+    assert!(app.filter_view);
+    assert_eq!(app.focused_pane, Pane::FileList);
+}
+
+#[test]
+fn switch_to_hidden_input() {
+    let dir = create_test_dir(&[("a.txt", "x\n")]);
+    let mut app = test_app(&dir);
+    app.focused_pane = Pane::FileList;
+
+    app.handle_key(key(KeyCode::Char('5'), KeyModifiers::NONE));
+    assert!(app.filter_view);
+    assert_eq!(app.focused_pane, Pane::IncludeInput);
+
+    app.focused_pane = Pane::FileList;
+    app.handle_key(key(KeyCode::Char('2'), KeyModifiers::NONE));
+    assert!(!app.filter_view);
+    assert_eq!(app.focused_pane, Pane::ReplaceInput);
+}
+
+#[test]
+fn glob_typing_rebuild() {
+    let dir = create_test_dir(&[("a.txt", "x\n")]);
+    let mut app = test_app(&dir);
+    app.handle_key(key(KeyCode::Char('g'), KeyModifiers::CONTROL));
+    app.handle_key(key(KeyCode::Char('*'), KeyModifiers::NONE));
+    assert_eq!(app.include_input.text(), "*");
+    assert!(app.pending_rebuild);
 }

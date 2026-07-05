@@ -1,6 +1,7 @@
 use rat_widget::{text::HasScreenCursor as _, text_input::TextInput};
 use ratatui::{
     Frame,
+    buffer::CellWidth as _,
     layout::{Constraint, Layout, Rect},
     style::{Color, Style, Stylize as _},
     symbols::border,
@@ -13,6 +14,7 @@ use crate::{
     replace::effective_replacement,
     types::{Pane, PaneAreas},
     ui::preview::Preview,
+    utils::trim_end_to_width,
 };
 
 mod file_list;
@@ -47,9 +49,12 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     let [search_area, replace_area] =
         Layout::vertical([Constraint::Length(3), Constraint::Length(3)]).areas(input_area);
 
+    let visible = |shown: bool, area: Rect| if shown { area } else { Rect::default() };
     app.pane_areas = PaneAreas {
-        search_input: search_area,
-        replace_input: replace_area,
+        search_input: visible(!app.filter_view, search_area),
+        replace_input: visible(!app.filter_view, replace_area),
+        include_input: visible(app.filter_view, search_area),
+        exclude_input: visible(app.filter_view, replace_area),
         file_list: file_area,
         preview: right,
     };
@@ -89,7 +94,59 @@ fn focused_border_style(pane: Pane, current: Pane) -> Style {
     }
 }
 
-fn render_input_area(app: &mut App, frame: &mut Frame, search_area: Rect, replace_area: Rect) {
+fn render_input_area(app: &mut App, frame: &mut Frame, top_area: Rect, bottom_area: Rect) {
+    if app.filter_view {
+        render_filter_inputs(app, frame, top_area, bottom_area);
+    } else {
+        render_search_inputs(app, frame, top_area, bottom_area);
+    }
+}
+
+fn render_filter_inputs(app: &mut App, frame: &mut Frame, include_area: Rect, exclude_area: Rect) {
+    // include input
+    app.include_input
+        .focus
+        .set(app.focused_pane == Pane::IncludeInput);
+    let include_block = Block::bordered()
+        .border_set(border::ROUNDED)
+        .border_style(focused_border_style(Pane::IncludeInput, app.focused_pane))
+        .title(format!(
+            "\u{2500}[{}]\u{2500}Include globs",
+            Pane::IncludeInput.digit()
+        ));
+    TextInput::new()
+        .style(Style::default())
+        .focus_style(Style::default())
+        .invalid_style(Style::default().fg(Color::Red))
+        .block(include_block)
+        .render(include_area, frame.buffer_mut(), &mut app.include_input);
+    if let Some((cx, cy)) = app.include_input.screen_cursor() {
+        frame.set_cursor_position((cx, cy));
+    }
+
+    // exclude input
+    app.exclude_input
+        .focus
+        .set(app.focused_pane == Pane::ExcludeInput);
+    let exclude_block = Block::bordered()
+        .border_set(border::ROUNDED)
+        .border_style(focused_border_style(Pane::ExcludeInput, app.focused_pane))
+        .title(format!(
+            "\u{2500}[{}]\u{2500}Exclude globs",
+            Pane::ExcludeInput.digit()
+        ));
+    TextInput::new()
+        .style(Style::default())
+        .focus_style(Style::default())
+        .invalid_style(Style::default().fg(Color::Red))
+        .block(exclude_block)
+        .render(exclude_area, frame.buffer_mut(), &mut app.exclude_input);
+    if let Some((cx, cy)) = app.exclude_input.screen_cursor() {
+        frame.set_cursor_position((cx, cy));
+    }
+}
+
+fn render_search_inputs(app: &mut App, frame: &mut Frame, search_area: Rect, replace_area: Rect) {
     let mode_label = format!(
         "\u{2500}[{}]\u{2500}Search ({})",
         Pane::SearchInput.digit(),
@@ -221,21 +278,58 @@ fn render_options_modal(app: &App, frame: &mut Frame, area: Rect) {
 }
 
 fn render_options_strip(app: &App, frame: &mut Frame, area: Rect) {
-    let hidden = if app.options.include_hidden {
-        "incl"
+    let mut spans = vec![
+        Span::raw("hidden: ").dim(),
+        toggle_span(app.options.include_hidden),
+        Span::raw(" | .gitignore: ").dim(),
+        toggle_span(app.options.include_gitignored),
+    ];
+    let globs = &app.options.globs;
+    if !globs.include.is_empty() {
+        spans.push(Span::raw(" | include: ").dim());
+        spans.push(Span::raw(globs.include.join(", ")).yellow());
+    }
+    if !globs.exclude.is_empty() {
+        spans.push(Span::raw(" | exclude: ").dim());
+        spans.push(Span::raw(globs.exclude.join(", ")).yellow());
+    }
+    frame.render_widget(trim_line(Line::from(spans), area.width), area);
+}
+
+fn toggle_span(active: bool) -> Span<'static> {
+    if active {
+        Span::raw("incl").green()
     } else {
-        "excl"
-    };
-    let gitignored = if app.options.include_gitignored {
-        "incl"
-    } else {
-        "excl"
-    };
-    let line = Line::from(vec![Span::styled(
-        format!("hidden: {hidden} | .gitignore: {gitignored}"),
-        Style::default().dim(),
-    )]);
-    frame.render_widget(line, area);
+        Span::raw("excl").red()
+    }
+}
+
+/// Truncate a line to `width` columns, appending a dim ellipsis when content is cut off.
+fn trim_line(line: Line<'static>, width: u16) -> Line<'static> {
+    let total: u16 = line
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref().cell_width())
+        .sum();
+    if total <= width {
+        return line;
+    }
+    let budget = width.saturating_sub(1); // reserve 1 col for the ellipsis
+    let mut spans = Vec::new();
+    let mut used: u16 = 0;
+    for span in line.spans {
+        let (kept, trimmed) = trim_end_to_width(&span.content, budget - used, false);
+        used += kept.cell_width();
+        if !kept.is_empty() {
+            // re-apply style to new span
+            spans.push(Span::styled(kept.to_owned(), span.style));
+        }
+        if trimmed {
+            break;
+        }
+    }
+    spans.push(Span::raw("\u{2026}").dim());
+    Line::from(spans)
 }
 
 fn render_status_bar(app: &App, frame: &mut Frame, status_area: Rect, hints_area: Rect) {
@@ -244,14 +338,14 @@ fn render_status_bar(app: &App, frame: &mut Frame, status_area: Rect, hints_area
         frame.render_widget(msg, status_area);
     }
     let hints = match app.focused_pane {
-        Pane::SearchInput | Pane::ReplaceInput => {
-            "C-r/A-r: mode | C-o/A-o: options | esc: file list | tab/S-tab: cycle | q/C-c: quit"
+        Pane::SearchInput | Pane::ReplaceInput | Pane::IncludeInput | Pane::ExcludeInput => {
+            "C-r/A-r: mode | C-g/A-g: globs | C-o/A-o: options | esc: file list | tab/S-tab: cycle | q/C-c: quit"
         }
         Pane::FileList => {
-            "space/s: skip file | f: apply file | a: apply all | j/k: navigate | l/enter: preview | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"
+            "space/s: skip file | f: apply file | a: apply all | j/k: navigate | l/enter: preview | C-g/A-g: globs | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"
         }
         Pane::Preview => {
-            "space: skip | enter: apply match | s: skip file | f: apply file | j/k: navigate | h/esc: back | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"
+            "space: skip | enter: apply match | s: skip file | f: apply file | j/k: navigate | h/esc: back | C-g/A-g: globs | C-o/A-o: options | tab/S-tab: cycle | q/C-c: quit"
         }
     };
     let version = concat!("v", env!("CARGO_PKG_VERSION"));
@@ -263,4 +357,29 @@ fn render_status_bar(app: &App, frame: &mut Frame, status_area: Rect, hints_area
             .areas(hints_area);
     frame.render_widget(Line::from(hints.blue()), hints_area);
     frame.render_widget(Line::from(version.dim()).right_aligned(), version_area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn elide_line_fits() {
+        let line = trim_line(Line::from("short"), 10);
+        assert_eq!(line.to_string(), "short");
+    }
+
+    #[test]
+    fn elide_line_truncates_with_ellipsis() {
+        let line = Line::from(vec![Span::raw("hello "), Span::raw("world")]);
+        let elided = trim_line(line, 8);
+        assert_eq!(elided.to_string(), "hello w\u{2026}");
+    }
+
+    #[test]
+    fn elide_line_exact_fit() {
+        let line = Line::from("exactly8");
+        let elided = trim_line(line, 8);
+        assert_eq!(elided.to_string(), "exactly8");
+    }
 }

@@ -17,8 +17,9 @@ use ratatui::{
 
 use crate::{
     config::{ConfigResult, Options},
+    glob::GlobErrorOrigin,
     preview::{PreviewCommand, PreviewResult, PreviewWorker, WantedSet},
-    search::{FileMatches, SearchResult, SearchWorker, WorkerCommand},
+    search::{FileMatches, SearchResult, SearchWorker, WalkOptions, WorkerCommand},
     spinner::SpinnerState,
     types::{Pane, PaneAreas},
     ui::{self, preview::PreviewState},
@@ -53,6 +54,8 @@ pub struct App {
     pub options: Options,
     pub search_input: TextInputState,
     pub replace_input: TextInputState,
+    pub include_input: TextInputState,
+    pub exclude_input: TextInputState,
     pub file_list: ListState,
     pub preview: PreviewState,
     pub spinner: SpinnerState,
@@ -64,6 +67,8 @@ pub struct App {
     pub confirm_apply_all: bool,
     pub options_open: bool,
     pub pending_search: bool,
+    pub pending_rebuild: bool,
+    pub filter_view: bool,
     pub exit: bool,
     pub generation: u64,
     pub results: Vec<FileMatches>,
@@ -84,8 +89,27 @@ impl App {
         let cancelled = Arc::new(AtomicBool::new(false));
 
         let ConfigResult { options, warning } = config;
+        let mut include_input = TextInputState::new();
+        include_input.set_text(options.globs.include.join(", "));
+        let mut exclude_input = TextInputState::new();
+        exclude_input.set_text(options.globs.exclude.join(", "));
+        let mut status_message = warning;
+        if let Err(e) = options.globs.overrides(&root) {
+            match e.origin {
+                GlobErrorOrigin::Include => include_input.set_invalid(true),
+                GlobErrorOrigin::Exclude => exclude_input.set_invalid(true),
+                GlobErrorOrigin::Build => {
+                    include_input.set_invalid(true);
+                    exclude_input.set_invalid(true);
+                }
+            }
+            if status_message.is_none() {
+                status_message = Some(e.to_string());
+            }
+        }
         let worker = SearchWorker::new(root.clone(), cmd_rx, result_tx, Arc::clone(&cancelled))?;
-        thread::spawn(move || worker.run(options.into()));
+        let walk_options = WalkOptions::from(&options);
+        thread::spawn(move || worker.run(walk_options));
 
         let (preview_cmd_tx, preview_cmd_rx) = mpsc::channel();
         let (preview_result_tx, preview_result_rx) = mpsc::channel();
@@ -101,12 +125,14 @@ impl App {
             root,
             search_input: TextInputState::new(),
             replace_input: TextInputState::new(),
+            include_input,
+            exclude_input,
             options,
             results: Vec::new(),
             focused_pane: Pane::default(),
             pane_areas: PaneAreas::default(),
             file_list: ListState::default(),
-            status_message: warning,
+            status_message,
             searching: false,
             truncated: false,
             spinner: SpinnerState::default(),
@@ -117,6 +143,8 @@ impl App {
             generation: 0,
             last_keystroke: None,
             pending_search: false,
+            pending_rebuild: false,
+            filter_view: false,
             cmd_tx,
             result_rx,
             cancelled,

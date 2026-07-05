@@ -7,11 +7,14 @@ use etcetera::{AppStrategy as _, AppStrategyArgs, choose_app_strategy};
 use serde::Deserialize;
 use tracing::warn;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use crate::glob::GlobFilters;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
     pub match_mode: MatchMode,
     pub include_hidden: bool,
     pub include_gitignored: bool,
+    pub globs: GlobFilters,
 }
 
 impl Options {
@@ -25,6 +28,12 @@ impl Options {
         if let Some(v) = other.include_gitignored {
             self.include_gitignored = v;
         }
+        if let Some(v) = &other.include_globs {
+            self.globs.include.clone_from(v);
+        }
+        if let Some(v) = &other.exclude_globs {
+            self.globs.exclude.clone_from(v);
+        }
     }
 }
 
@@ -34,6 +43,7 @@ impl Default for Options {
             match_mode: MatchMode::default(),
             include_hidden: true,
             include_gitignored: false,
+            globs: GlobFilters::default(),
         }
     }
 }
@@ -222,12 +232,15 @@ struct OptionsSection {
     match_mode: Option<MatchMode>,
     include_hidden: Option<bool>,
     include_gitignored: Option<bool>,
+    include_globs: Option<Vec<String>>,
+    exclude_globs: Option<Vec<String>>,
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
+    use indoc::indoc;
     use tempfile::TempDir;
 
     use super::*;
@@ -258,10 +271,10 @@ mod tests {
             v: MatchMode,
         }
         let cases = [
-            ("v = \"case-aware\"", MatchMode::CaseAware),
-            ("v = \"literal\"", MatchMode::Literal),
-            ("v = \"regex\"", MatchMode::Regex),
-            ("v = \"regex-multiline\"", MatchMode::RegexMultiline),
+            (r#"v = "case-aware""#, MatchMode::CaseAware),
+            (r#"v = "literal""#, MatchMode::Literal),
+            (r#"v = "regex""#, MatchMode::Regex),
+            (r#"v = "regex-multiline""#, MatchMode::RegexMultiline),
         ];
         for (input, expected) in cases {
             let got: Wrap = toml::from_str(input).unwrap();
@@ -275,7 +288,12 @@ mod tests {
         let path = write(
             &dir,
             "swpui.toml",
-            "[options]\nmatch-mode = \"regex\"\ninclude-hidden = false\ninclude-gitignored = true\n",
+            indoc! {r#"
+                [options]
+                match-mode = "regex"
+                include-hidden = false
+                include-gitignored = true
+            "#},
         );
         let loader = Loader::default().merge_file(&path);
         assert!(loader.warnings.is_empty());
@@ -290,8 +308,13 @@ mod tests {
             match_mode: MatchMode::CaseAware,
             include_hidden: false,
             include_gitignored: true,
+            globs: GlobFilters::default(),
         };
-        let cfg: ConfigFile = toml::from_str("[options]\nmatch-mode = \"literal\"\n").unwrap();
+        let cfg: ConfigFile = toml::from_str(indoc! {r#"
+            [options]
+            match-mode = "literal"
+        "#})
+        .unwrap();
         opts.merge(&cfg.options);
         assert_eq!(opts.match_mode, MatchMode::Literal);
         assert!(!opts.include_hidden);
@@ -299,9 +322,56 @@ mod tests {
     }
 
     #[test]
+    fn parse_globs() {
+        let dir = TempDir::new().unwrap();
+        let path = write(
+            &dir,
+            "swpui.toml",
+            indoc! {r#"
+                [options]
+                include-globs = ["src/**", "*.rs"]
+                exclude-globs = ["*_test.rs"]
+            "#},
+        );
+        let loader = Loader::default().merge_file(&path);
+        assert!(loader.warnings.is_empty());
+        assert_eq!(
+            loader.options.globs.include,
+            vec!["src/**".to_string(), "*.rs".to_string()]
+        );
+        assert_eq!(loader.options.globs.exclude, vec!["*_test.rs".to_string()]);
+    }
+
+    #[test]
+    fn globs_override() {
+        let mut opts = Options {
+            globs: GlobFilters {
+                include: vec!["a".to_string()],
+                exclude: vec!["b".to_string()],
+            },
+            ..Options::default()
+        };
+        let cfg: ConfigFile = toml::from_str(indoc! {r#"
+            [options]
+            include-globs = ["c"]
+        "#})
+        .unwrap();
+        opts.merge(&cfg.options);
+        assert_eq!(opts.globs.include, vec!["c".to_string()]);
+        assert_eq!(opts.globs.exclude, vec!["b".to_string()]);
+    }
+
+    #[test]
     fn unknown_key() {
         let dir = TempDir::new().unwrap();
-        let path = write(&dir, "swpui.toml", "[options]\nmatch-modee = \"regex\"\n");
+        let path = write(
+            &dir,
+            "swpui.toml",
+            indoc! {r#"
+                [options]
+                match-modee = "regex"
+            "#},
+        );
         let loader = Loader::default().merge_file(&path);
         assert_eq!(loader.warnings.len(), 1);
         assert_eq!(loader.options, Options::default());
@@ -310,7 +380,14 @@ mod tests {
     #[test]
     fn wrong_type() {
         let dir = TempDir::new().unwrap();
-        let path = write(&dir, "swpui.toml", "[options]\ninclude-hidden = \"yes\"\n");
+        let path = write(
+            &dir,
+            "swpui.toml",
+            indoc! {r#"
+                [options]
+                include-hidden = "yes"
+            "#},
+        );
         let loader = Loader::default().merge_file(&path);
         assert_eq!(loader.warnings.len(), 1);
         assert_eq!(loader.options, Options::default());
@@ -328,8 +405,22 @@ mod tests {
     #[test]
     fn dotted_vs_non_dotted() {
         let dir = TempDir::new().unwrap();
-        write(&dir, "swpui.toml", "[options]\nmatch-mode = \"regex\"\n");
-        write(&dir, ".swpui.toml", "[options]\nmatch-mode = \"literal\"\n");
+        write(
+            &dir,
+            "swpui.toml",
+            indoc! {r#"
+                [options]
+                match-mode = "regex"
+            "#},
+        );
+        write(
+            &dir,
+            ".swpui.toml",
+            indoc! {r#"
+                [options]
+                match-mode = "literal"
+            "#},
+        );
         let picked = Loader::file_in_dir(dir.path()).unwrap();
         assert_eq!(picked.file_name().unwrap(), "swpui.toml");
     }
@@ -337,7 +428,14 @@ mod tests {
     #[test]
     fn dotted_only() {
         let dir = TempDir::new().unwrap();
-        write(&dir, ".swpui.toml", "[options]\nmatch-mode = \"literal\"\n");
+        write(
+            &dir,
+            ".swpui.toml",
+            indoc! {r#"
+                [options]
+                match-mode = "literal"
+            "#},
+        );
         let picked = Loader::file_in_dir(dir.path()).unwrap();
         assert_eq!(picked.file_name().unwrap(), ".swpui.toml");
     }
@@ -355,12 +453,18 @@ mod tests {
         fs::create_dir_all(&inner).unwrap();
         fs::write(
             dir.path().join("swpui.toml"),
-            "[options]\nmatch-mode = \"regex\"\n",
+            indoc! {r#"
+                [options]
+                match-mode = "regex"
+            "#},
         )
         .unwrap();
         fs::write(
             inner.join("swpui.toml"),
-            "[options]\nmatch-mode = \"literal\"\n",
+            indoc! {r#"
+                [options]
+                match-mode = "literal"
+            "#},
         )
         .unwrap();
 
@@ -375,12 +479,19 @@ mod tests {
         let project = TempDir::new().unwrap();
         fs::write(
             user_dir.path().join("swpui.toml"),
-            "[options]\nmatch-mode = \"regex\"\ninclude-hidden = false\n",
+            indoc! {r#"
+                [options]
+                match-mode = "regex"
+                include-hidden = false
+            "#},
         )
         .unwrap();
         fs::write(
             project.path().join("swpui.toml"),
-            "[options]\nmatch-mode = \"literal\"\n",
+            indoc! {r#"
+                [options]
+                match-mode = "literal"
+            "#},
         )
         .unwrap();
 

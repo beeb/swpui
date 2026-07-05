@@ -8,6 +8,7 @@ use tracing::debug;
 
 use crate::{
     app::App,
+    glob::{GlobErrorOrigin, GlobFilters},
     path::ResponsivePath,
     search::{SearchRequest, SearchResult, WorkerCommand},
     utils::results_mem_bytes,
@@ -70,14 +71,19 @@ impl App {
     }
 
     pub fn debounce_search(&mut self) {
-        if !self.pending_search {
+        if !self.pending_search && !self.pending_rebuild {
             return;
         }
         if let Some(last) = self.last_keystroke
             && last.elapsed() >= DEBOUNCE
         {
-            self.dispatch_search();
+            if self.pending_rebuild {
+                self.apply_glob_edit();
+            } else {
+                self.dispatch_search();
+            }
             self.pending_search = false;
+            self.pending_rebuild = false;
         }
     }
 
@@ -86,10 +92,15 @@ impl App {
         self.pending_search = true;
     }
 
+    pub fn schedule_rebuild(&mut self) {
+        self.last_keystroke = Some(Instant::now());
+        self.pending_rebuild = true;
+    }
+
     pub fn rebuild_file_list(&mut self) {
         let _ = self
             .cmd_tx
-            .send(WorkerCommand::Rebuild(self.options.into()));
+            .send(WorkerCommand::Rebuild((&self.options).into()));
         self.dispatch_search();
     }
 
@@ -128,5 +139,31 @@ impl App {
             }
             .into(),
         );
+    }
+
+    /// Parse and validate the filter inputs.
+    ///
+    /// On success store them and rebuild the file list.
+    fn apply_glob_edit(&mut self) {
+        self.include_input.set_invalid(false);
+        self.exclude_input.set_invalid(false);
+        let globs = GlobFilters::parse(self.include_input.text(), self.exclude_input.text());
+        if globs == self.options.globs {
+            return;
+        }
+        if let Err(e) = globs.overrides(&self.root) {
+            match e.origin {
+                GlobErrorOrigin::Include => self.include_input.set_invalid(true),
+                GlobErrorOrigin::Exclude => self.exclude_input.set_invalid(true),
+                GlobErrorOrigin::Build => {
+                    self.include_input.set_invalid(true);
+                    self.exclude_input.set_invalid(true);
+                }
+            }
+            self.status_message = Some(e.to_string());
+            return;
+        }
+        self.options.globs = globs;
+        self.rebuild_file_list();
     }
 }

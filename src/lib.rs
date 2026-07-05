@@ -2,6 +2,7 @@
 #![doc = include_str!(concat!("../", std::env!("CARGO_PKG_README")))]
 pub mod app;
 pub mod config;
+pub mod glob;
 pub mod hash;
 pub mod path;
 pub mod prelude;
