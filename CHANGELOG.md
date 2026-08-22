@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.10.1] - 2026-08-22
+
+### Changed
+
+- **(deps)** update deps ([#60](https://github.com/beeb/swpui/pull/60)) - ([d25a273](https://github.com/beeb/swpui/commit/d25a2738dba360447d7a1f0a4d3b759fa88cc4b0))
+
+- **(flake)** update flake ([#58](https://github.com/beeb/swpui/pull/58)) - ([8454a14](https://github.com/beeb/swpui/commit/8454a14734d5f382402b1ea476537e5bd1d95567))
+
+
+
+
+
+
+**Full Changelog**: [0.10.0...0.10.1](https://github.com/beeb/swpui/compare/v0.10.0...v0.10.1)
+
+
 ## [0.10.0] - 2026-07-05
 
 ### Added
