@@ -39,6 +39,14 @@ cargo install swpui
 cargo binstall swpui
 ```
 
+### Via X-CMD
+
+Install it with [x-cmd](https://www.x-cmd.com/mod/eget), which downloads the pre-built binary from GitHub Releases:
+
+```bash
+x eget use beeb/swpui
+```
+
 #### Via Nix (`nixpkgs-unstable`)
 
 ```bash
