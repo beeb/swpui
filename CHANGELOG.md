@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
+## [0.10.2] - 2026-09-23
+
+### Documentation
+
+
+-  Add x eget installation method ([#61](https://github.com/beeb/swpui/pull/61)) - ([165c606](https://github.com/beeb/swpui/commit/165c606104ce97f8e5dfd551c7e5e64e08329c65))
+
+
+
+
+**Full Changelog**: [0.10.1...0.10.2](https://github.com/beeb/swpui/compare/v0.10.1...v0.10.2)
+
+
 ## [0.10.1] - 2026-08-22
 
 ### Changed
